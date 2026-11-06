@@ -57,7 +57,7 @@ jobs:
         run: |
           echo "Using preinstalled Android SDK at: $ANDROID_HOME"
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools" || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "platforms;android-35" "platforms;android-34" "build-tools;35.0.0" "platform-tools" || true
 
       - name: 🔄 Sync Capacitor Android Platform
         run: npx cap sync android
