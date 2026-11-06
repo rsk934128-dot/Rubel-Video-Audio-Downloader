@@ -1,0 +1,8 @@
+{
+  "name": "Remix Universal Video \u0026 Audio Downloader",
+  "description": "Download MP3 and HD MP4 videos shared from YouTube, Facebook, Instagram and other platforms with Web Share Target support, multi-URL batch processing queue, format selector, and quality options.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

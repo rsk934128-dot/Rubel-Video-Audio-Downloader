@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" },
+        "language": { "type": "string" },
+        "preferredQuality": { "type": "string" }
+      },
+      "required": ["id", "email"]
+    },
+    "UserDownload": {
+      "title": "UserDownload",
+      "description": "User download item history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "originalUrl": { "type": "string" },
+        "format": { "type": "string" },
+        "quality": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile record keyed by Auth UID"
+    },
+    "/users/{userId}/downloads/{downloadId}": {
+      "schema": "UserDownload",
+      "description": "User-specific download history items"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f43f5e" />
+      <stop offset="50%" stop-color="#fb7185" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+    <linearGradient id="circleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="none" stroke="url(#accentGrad)" stroke-width="6" opacity="0.35" />
+  <circle cx="256" cy="256" r="170" fill="url(#circleGrad)" stroke="#334155" stroke-width="4" />
+  <!-- Media Play & Down Arrow Symbol -->
+  <g transform="translate(256,236)">
+    <!-- Down Arrow Stem -->
+    <rect x="-18" y="-90" width="36" height="110" rx="12" fill="url(#accentGrad)" />
+    <!-- Down Arrow Head -->
+    <path d="M -70 15 L 0 85 L 70 15 Z" fill="url(#accentGrad)" stroke="url(#accentGrad)" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" />
+  </g>
+  <!-- Tray Base -->
+  <path d="M 146 360 L 366 360" stroke="url(#accentGrad)" stroke-width="26" stroke-linecap="round" />
+  <path d="M 170 325 L 146 360" stroke="url(#accentGrad)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M 342 325 L 366 360" stroke="url(#accentGrad)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Audio wave dots -->
+  <circle cx="216" cy="420" r="8" fill="#38bdf8" />
+  <circle cx="256" cy="420" r="10" fill="#fb7185" />
+  <circle cx="296" cy="420" r="8" fill="#38bdf8" />
+</svg>
