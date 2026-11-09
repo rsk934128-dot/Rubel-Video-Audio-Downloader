@@ -427,7 +427,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
         codec: 'H.264 / AVC + AAC',
         badge: 'Facebook HD',
         isRecommended: true,
-        directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm')}&filename=Facebook_1080p_Watch.webm&isAudio=false&stream=true`,
       },
       {
         id: 'fb-video-720p',
@@ -440,7 +439,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
         estimatedSize: calcSize(2200),
         codec: 'H.264 / AVC',
         badge: 'Mobile',
-        directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4')}&filename=Facebook_720p_Video.mp4&isAudio=false&stream=true`,
       },
       {
         id: 'fb-audio-320k',
@@ -453,7 +451,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
         codec: 'MPEG-1 Layer 3 (MP3)',
         badge: 'FB Sound',
         isRecommended: true,
-        directDownloadUrl: `/api/proxy-download?url=resilient&filename=Facebook_Audio_320k.mp3&isAudio=true&stream=true`,
       },
     ];
   }
@@ -472,7 +469,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
         codec: 'H.264 / AVC + AAC',
         badge: 'Tweet HD',
         isRecommended: true,
-        directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4')}&filename=Twitter_HD_Video.mp4&isAudio=false&stream=true`,
       },
       {
         id: 'tw-audio-mp3',
@@ -484,7 +480,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
         estimatedSize: calcSize(320),
         codec: 'MPEG-1 Layer 3 (MP3)',
         badge: 'Audio',
-        directDownloadUrl: `/api/proxy-download?url=resilient&filename=Twitter_Audio_320k.mp3&isAudio=true&stream=true`,
       },
     ];
   }
@@ -504,7 +499,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       codec: 'MPEG-1 Layer 3 (MP3)',
       badge: 'Crystal Audio',
       isRecommended: true,
-      directDownloadUrl: `/api/proxy-download?url=resilient&filename=Soundtrack_320k.mp3&isAudio=true&stream=true`,
     },
     {
       id: 'audio-mp3-128',
@@ -517,7 +511,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       estimatedSize: calcSize(128),
       codec: 'MPEG-1 Layer 3 (MP3)',
       badge: 'Fast Download',
-      directDownloadUrl: `/api/proxy-download?url=resilient&filename=Soundtrack_128k.mp3&isAudio=true&stream=true`,
     },
     {
       id: 'audio-m4a-256',
@@ -530,7 +523,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       estimatedSize: calcSize(256),
       codec: 'Advanced Audio Coding (AAC)',
       badge: 'Apple AAC',
-      directDownloadUrl: `/api/proxy-download?url=resilient&filename=Audio_256k.m4a&isAudio=true&stream=true`,
     },
 
     // VIDEO FORMATS
@@ -548,7 +540,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       codec: 'VP9 / H.264 + AAC Stereo',
       badge: '4K Ultra HD',
       isRecommended: true,
-      directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://upload.wikimedia.org/wikipedia/commons/c/c0/Big_Buck_Bunny_4K.webm')}&filename=4K_Ultra_HD_Video.webm&isAudio=false&stream=true`,
     },
     {
       id: 'video-mp4-1440p',
@@ -563,7 +554,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       estimatedSize: calcSize(9000),
       codec: 'VP9 / Opus Stereo',
       badge: '2K Quad HD',
-      directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm')}&filename=1440p_2K_Video.webm&isAudio=false&stream=true`,
     },
     {
       id: 'video-mp4-1080p',
@@ -578,7 +568,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       estimatedSize: durationSeconds === 634 ? '220 MB' : calcSize(5000),
       codec: 'VP9 / H.264 + AAC Stereo',
       badge: 'Best Quality',
-      directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm')}&filename=1080p_Full_HD_Video.webm&isAudio=false&stream=true`,
     },
     {
       id: 'video-mp4-720p',
@@ -593,7 +582,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       estimatedSize: durationSeconds === 634 ? '61.8 MB' : calcSize(2500),
       codec: 'H.264 / AVC + AAC Stereo',
       badge: 'Recommended',
-      directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4')}&filename=720p_HD_Video.mp4&isAudio=false&stream=true`,
     },
     {
       id: 'video-mp4-480p',
@@ -608,7 +596,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       estimatedSize: durationSeconds === 634 ? '32.5 MB' : calcSize(1200),
       codec: 'VP9 / Opus',
       badge: 'Data Saver',
-      directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.480p.vp9.webm')}&filename=480p_SD_Video.webm&isAudio=false&stream=true`,
     },
     {
       id: 'video-mp4-360p',
@@ -623,7 +610,6 @@ export function generateFormatList(durationSeconds: number, platform: PlatformTy
       estimatedSize: durationSeconds === 634 ? '18.2 MB' : calcSize(750),
       codec: 'MPEG-4 / AAC',
       badge: 'Fast Download',
-      directDownloadUrl: `/api/proxy-download?url=${encodeURIComponent('https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.360p.mpeg4.mov')}&filename=360p_Mobile_Video.mp4&isAudio=false&stream=true`,
     },
   ];
 }
@@ -827,8 +813,8 @@ export async function extractVideoInfo(rawInput: string): Promise<VideoMetadata>
       thumbnail,
       description: 'Extracted from YouTube. Ready to convert to 320kbps MP3 audio or 1080p Full HD MP4.',
       formats: generateFormatList(durationSeconds, 'youtube'),
-      sampleVideoUrl: 'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
-      sampleAudioUrl: '/api/proxy-download?url=resilient&filename=preview_audio.mp3&isAudio=true&stream=true',
+      sampleVideoUrl: undefined,
+      sampleAudioUrl: undefined,
     };
   }
 

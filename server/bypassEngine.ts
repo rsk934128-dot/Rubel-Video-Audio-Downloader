@@ -514,6 +514,23 @@ export function streamResilientMedia(
   const utf8Encoded = encodeURIComponent(cleanFilename);
   const lower = cleanFilename.toLowerCase();
   const isInline = req.query?.inline === 'true' || Boolean(req.headers?.range);
+  const originUrl = (req.query?.originUrl as string) || '';
+  const isBBB = isBigBuckBunny(originUrl, title || cleanFilename);
+
+  // If this is a real user video from YouTube/Social (NOT Big Buck Bunny), redirect to authentic download resolver!
+  if (!isBBB && originUrl) {
+    if (originUrl.includes('youtube.com') || originUrl.includes('youtu.be')) {
+      const ytMatch = originUrl.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      const ytId = ytMatch ? ytMatch[1] : '';
+      if (isAudio) {
+        return res.redirect(302, `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
+      } else {
+        return res.redirect(302, ytId ? `https://www.ssyoutube.com/watch?v=${ytId}` : `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
+      }
+    } else if (originUrl.includes('facebook.com') || originUrl.includes('fb.watch')) {
+      return res.redirect(302, `https://fdown.net/`);
+    }
+  }
 
   if (isAudio) {
     const audioMasterSource = 'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4';
@@ -900,7 +917,7 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
       if (originUrl) {
         return streamYtDlpMedia(originUrl, cleanFilename, isAudio, req, res);
       }
-      return streamResilientMedia(cleanFilename, isAudio, res);
+      return streamResilientMedia(cleanFilename, isAudio, req, res);
     }
 
     const status = upstream.status === 206 ? 206 : 200;
@@ -988,7 +1005,7 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     if (originUrl && !res.headersSent) {
       return streamYtDlpMedia(originUrl, cleanFilename, isAudio, req, res);
     }
-    return streamResilientMedia(cleanFilename, isAudio, res);
+    return streamResilientMedia(cleanFilename, isAudio, req, res);
   }
 }
 

@@ -128,10 +128,16 @@ export const YouTubeMusicView: React.FC<Props> = ({
             ইউটিউবের যেকোনো গান, শিল্পী বা মিউজিক অ্যালবাম নাম দিয়ে খুঁজুন। হাই-রেজোলিউশন অ্যালবাম আর্ট সহ গান শুনুন এবং এক ক্লিকে হাই-কোয়ালিটি অডিও (MP3) ও ভিডিও (MP4) ডাউনলোড করে নিন।
           </p>
 
-          {/* Screen Lock Guarantee Notice */}
-          <div className="inline-flex items-center gap-2 pt-1 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-3.5 py-1.5 rounded-xl font-medium">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>🔒 ব্যাকগ্রাউন্ড ও স্ক্রিন লক প্রোটেকশন: মোবাইল স্ক্রিন লক করে রাখলেও ডাউনলোড চালু থাকবে!</span>
+          {/* Screen Lock & Background Playback Guarantee Notice */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+            <span className="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-950/50 border border-emerald-800/60 px-3 py-1.5 rounded-xl font-medium">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>🔒 অটো ব্যাকগ্রাউন্ড প্লে: অ্যাপ থেকে বের হলেও গান বন্ধ হবে না, চালু থাকবে!</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-amber-300 bg-amber-950/40 border border-amber-800/50 px-3 py-1.5 rounded-xl font-medium">
+              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>⚡ জিরো-ডিলে ইনস্ট্যান্ট অডিও প্লেব্যাক</span>
+            </span>
           </div>
         </div>
 

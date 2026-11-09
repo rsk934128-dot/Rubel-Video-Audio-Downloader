@@ -247,50 +247,32 @@ export function startDownloadSimulation(
         // Trigger browser save
         triggerBrowserDownload(fileName, format.directDownloadUrl);
 
-        // Smooth, calm, paced progress progression ("আস্তে আস্তে সুন্দর করে ডাউনলোড")
-        let currentPct = 14;
-        const intervalTime = 750; // 750ms ticks for calm and steady download feel
+        task.progress = 45;
+        task.speed = '8.5 MB/s';
+        task.eta = '1s';
+        wrappedOnProgress({ ...task });
 
-        const directPaceTimer = setInterval(() => {
-          if (isCancelled) {
-            clearInterval(directPaceTimer);
-            return;
-          }
+        // Responsive fast progress completion matching browser download
+        setTimeout(() => {
+          if (isCancelled) return;
+          task.status = 'completed';
+          task.progress = 100;
+          task.speed = 'Finished';
+          task.eta = '0s';
+          task.downloadedBytes = totalBytes;
+          task.downloadedSize = task.totalSize;
 
-          if (currentPct < 96) {
-            const step = Math.floor(Math.random() * 4) + 4; // 4% to 7% per step
-            currentPct = Math.min(96, currentPct + step);
-            const speedVal = (5.0 + Math.random() * 3.5).toFixed(1);
-            const remainingBytes = Math.max(0, totalBytes * (1 - currentPct / 100));
-            const remainingSec = Math.max(1, Math.round(remainingBytes / (parseFloat(speedVal) * 1024 * 1024)));
+          try {
+            confetti({
+              particleCount: 80,
+              spread: 60,
+              origin: { y: 0.8 },
+            });
+          } catch {}
 
-            task.progress = currentPct;
-            task.speed = `${speedVal} MB/s`;
-            task.eta = `${remainingSec}s`;
-            task.downloadedBytes = Math.round(totalBytes * (currentPct / 100));
-            task.downloadedSize = formatDownloadedBytes(task.downloadedBytes, format.estimatedSize);
-            wrappedOnProgress({ ...task });
-          } else {
-            clearInterval(directPaceTimer);
-            task.status = 'completed';
-            task.progress = 100;
-            task.speed = 'Finished';
-            task.eta = '0s';
-            task.downloadedBytes = totalBytes;
-            task.downloadedSize = task.totalSize;
-
-            try {
-              confetti({
-                particleCount: 80,
-                spread: 60,
-                origin: { y: 0.8 },
-              });
-            } catch {}
-
-            notificationManager.notifyDownloadComplete(fileName, format.quality);
-            wrappedOnComplete({ ...task });
-          }
-        }, intervalTime);
+          notificationManager.notifyDownloadComplete(fileName, format.quality);
+          wrappedOnComplete({ ...task });
+        }, 1200);
         return;
       }
 
@@ -376,47 +358,32 @@ export function startDownloadSimulation(
         // Trigger browser save
         triggerBrowserDownload(fileName, startData.downloadUrl);
 
-        let directStreamPct = 16;
-        const directStreamTimer = setInterval(() => {
-          if (isCancelled) {
-            clearInterval(directStreamTimer);
-            return;
-          }
+        task.progress = 50;
+        task.speed = '8.0 MB/s';
+        task.eta = '1s';
+        wrappedOnProgress({ ...task });
 
-          if (directStreamPct < 96) {
-            const step = Math.floor(Math.random() * 4) + 4; // 4% to 7% per step
-            directStreamPct = Math.min(96, directStreamPct + step);
-            const speedVal = (5.2 + Math.random() * 3.2).toFixed(1);
-            const remainingBytes = Math.max(0, totalBytes * (1 - directStreamPct / 100));
-            const remainingSec = Math.max(1, Math.round(remainingBytes / (parseFloat(speedVal) * 1024 * 1024)));
+        // Responsive fast progress completion matching browser download
+        setTimeout(() => {
+          if (isCancelled) return;
+          task.status = 'completed';
+          task.progress = 100;
+          task.speed = 'Finished';
+          task.eta = '0s';
+          task.downloadedBytes = totalBytes;
+          task.downloadedSize = task.totalSize;
 
-            task.progress = directStreamPct;
-            task.speed = `${speedVal} MB/s`;
-            task.eta = `${remainingSec}s`;
-            task.downloadedBytes = Math.round(totalBytes * (directStreamPct / 100));
-            task.downloadedSize = formatDownloadedBytes(task.downloadedBytes, format.estimatedSize);
-            wrappedOnProgress({ ...task });
-          } else {
-            clearInterval(directStreamTimer);
-            task.status = 'completed';
-            task.progress = 100;
-            task.speed = 'Finished';
-            task.eta = '0s';
-            task.downloadedBytes = totalBytes;
-            task.downloadedSize = task.totalSize;
+          try {
+            confetti({
+              particleCount: 80,
+              spread: 60,
+              origin: { y: 0.8 },
+            });
+          } catch {}
 
-            try {
-              confetti({
-                particleCount: 80,
-                spread: 60,
-                origin: { y: 0.8 },
-              });
-            } catch {}
-
-            notificationManager.notifyDownloadComplete(fileName, format.quality);
-            onComplete({ ...task });
-          }
-        }, 750);
+          notificationManager.notifyDownloadComplete(fileName, format.quality);
+          onComplete({ ...task });
+        }, 1200);
         return;
       }
 

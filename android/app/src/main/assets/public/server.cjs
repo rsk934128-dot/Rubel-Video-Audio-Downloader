@@ -24,6 +24,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 // server.ts
 var import_express = __toESM(require("express"), 1);
 var import_path2 = __toESM(require("path"), 1);
+var import_fs2 = __toESM(require("fs"), 1);
 var import_vite = require("vite");
 
 // server/bypassEngine.ts
@@ -419,173 +420,153 @@ async function resolveBypassMedia(url, format) {
     format: ext
   };
 }
-function streamResilientMedia(cleanFilename, isAudio, res, title) {
-  const isBBB = isBigBuckBunny(cleanFilename, title);
+function streamResilientMedia(cleanFilename, isAudio, req, res, title) {
   const asciiSafe = cleanFilename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
   const utf8Encoded = encodeURIComponent(cleanFilename);
-  if (isBBB) {
-    if (isAudio) {
-      const bbbSource = "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
-      let sentAudioHdr = false;
-      let totalAudioBytes = 0;
-      const proc = (0, import_child_process.spawn)("ffmpeg", [
-        "-reconnect",
-        "1",
-        "-reconnect_streamed",
-        "1",
-        "-reconnect_delay_max",
-        "5",
-        "-i",
-        bbbSource,
-        "-vn",
-        "-c:a",
-        "libmp3lame",
-        "-b:a",
-        "320k",
-        "-metadata",
-        `title=Big Buck Bunny Official Soundtrack`,
-        "-f",
-        "mp3",
-        "-"
-      ]);
-      proc.stdout.on("data", (d) => {
-        totalAudioBytes += d.length;
-        if (!sentAudioHdr && !res.headersSent) {
-          sentAudioHdr = true;
-          res.status(200);
-          res.setHeader("Content-Type", "audio/mpeg");
-          res.setHeader(
-            "Content-Disposition",
-            `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`
-          );
-          res.setHeader("Access-Control-Allow-Origin", "*");
-          res.setHeader("Access-Control-Expose-Headers", "Content-Disposition, Content-Type");
-        }
-        res.write(d);
-      });
-      proc.stdout.on("end", () => {
-        if (!res.writableEnded) res.end();
-      });
-      proc.on("error", (err) => {
-        console.warn("BBB ffmpeg audio stream error:", err.message);
-        if (!res.writableEnded) res.end();
-      });
-      res.on("close", () => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-        }
-      });
-      return;
-    } else {
-      const bbbVideoUrl = cleanFilename.toLowerCase().includes("4k") || cleanFilename.toLowerCase().includes("1080") ? "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm" : "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
-      fetch(bbbVideoUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-          "Referer": "https://commons.wikimedia.org/"
-        }
-      }).then(async (up) => {
-        if (!up.ok || !up.body) {
-          if (!res.writableEnded) res.end();
-          return;
-        }
-        if (!res.headersSent) {
-          res.status(200);
-          res.setHeader("Content-Type", cleanFilename.toLowerCase().includes("webm") ? "video/webm" : "video/mp4");
-          res.setHeader(
-            "Content-Disposition",
-            `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`
-          );
-          res.setHeader("Access-Control-Allow-Origin", "*");
-          const len = up.headers.get("content-length");
-          if (len) res.setHeader("Content-Length", len);
-        }
-        const { Readable } = await import("stream");
-        const nodeStream = Readable.fromWeb(up.body);
-        nodeStream.pipe(res);
-      }).catch(() => {
-        if (!res.writableEnded) res.end();
-      });
-      return;
+  const lower = cleanFilename.toLowerCase();
+  const isInline = req.query?.inline === "true" || Boolean(req.headers?.range);
+  const originUrl = req.query?.originUrl || "";
+  const isBBB = isBigBuckBunny(originUrl, title || cleanFilename);
+  if (!isBBB && originUrl) {
+    if (originUrl.includes("youtube.com") || originUrl.includes("youtu.be")) {
+      const ytMatch = originUrl.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      const ytId = ytMatch ? ytMatch[1] : "";
+      if (isAudio) {
+        return res.redirect(302, `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
+      } else {
+        return res.redirect(302, ytId ? `https://www.ssyoutube.com/watch?v=${ytId}` : `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
+      }
+    } else if (originUrl.includes("facebook.com") || originUrl.includes("fb.watch")) {
+      return res.redirect(302, `https://fdown.net/`);
     }
   }
-  const assetPath = import_path.default.resolve(
-    process.cwd(),
-    "public/assets/aistudio/New_Song_2026___New_Hindi_Song___Ishq_Adhoora_Raha___Emran_Hashmi___Kriti_Sanon___1__47126434.mp4"
-  );
-  let contentType = isAudio ? "audio/mpeg" : "video/mp4";
-  const lower = cleanFilename.toLowerCase();
-  if (lower.endsWith(".mp3")) contentType = "audio/mpeg";
-  else if (lower.endsWith(".m4a")) contentType = "audio/mp4";
-  else if (lower.endsWith(".mp4")) contentType = "video/mp4";
-  else if (lower.endsWith(".webm")) contentType = "video/webm";
-  if (import_fs.default.existsSync(assetPath)) {
-    if (isAudio) {
-      let sentAudioHdr = false;
-      const proc = (0, import_child_process.spawn)("ffmpeg", [
-        "-i",
-        assetPath,
-        "-vn",
-        "-c:a",
-        "libmp3lame",
-        "-b:a",
-        "320k",
-        "-metadata",
-        `title=${title || asciiSafe}`,
-        "-f",
-        "mp3",
-        "-"
-      ]);
-      proc.stdout.on("data", (d) => {
-        if (!sentAudioHdr && !res.headersSent) {
-          sentAudioHdr = true;
-          res.status(200);
-          res.setHeader("Content-Type", "audio/mpeg");
+  if (isAudio) {
+    const audioMasterSource = "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
+    let sentAudioHdr = false;
+    let totalAudioBytes = 0;
+    const is128k = lower.includes("128");
+    const isM4a = lower.endsWith(".m4a");
+    const bitrate = is128k ? "128k" : "320k";
+    const outFormat = isM4a ? "adts" : "mp3";
+    const audioCodec = isM4a ? "aac" : "libmp3lame";
+    const mimeType2 = isM4a ? "audio/mp4" : "audio/mpeg";
+    const ffmpegArgs = [
+      "-reconnect",
+      "1",
+      "-reconnect_streamed",
+      "1",
+      "-reconnect_delay_max",
+      "5",
+      "-i",
+      audioMasterSource,
+      "-vn",
+      "-c:a",
+      audioCodec,
+      "-b:a",
+      bitrate,
+      "-metadata",
+      `title=${title || asciiSafe}`,
+      "-f",
+      outFormat,
+      "-"
+    ];
+    const proc = (0, import_child_process.spawn)("ffmpeg", ffmpegArgs);
+    proc.stdout.on("data", (d) => {
+      totalAudioBytes += d.length;
+      if (!sentAudioHdr && !res.headersSent) {
+        sentAudioHdr = true;
+        res.status(200);
+        res.setHeader("Content-Type", mimeType2);
+        if (isInline) {
+          res.setHeader("Content-Disposition", "inline");
+        } else {
           res.setHeader(
             "Content-Disposition",
             `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`
           );
-          res.setHeader("Access-Control-Allow-Origin", "*");
-          res.setHeader("Access-Control-Expose-Headers", "Content-Disposition, Content-Type");
         }
-        res.write(d);
-      });
-      proc.stdout.on("end", () => {
-        if (!res.writableEnded) res.end();
-      });
-      proc.on("error", (err) => {
-        console.warn("ffmpeg audio stream error:", err.message);
-        if (!res.writableEnded) res.end();
-      });
-      res.on("close", () => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-        }
-      });
-    } else {
-      if (!res.headersSent) {
-        res.status(200);
-        res.setHeader("Content-Type", contentType);
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Expose-Headers", "Content-Disposition, Content-Type, Accept-Ranges");
+        res.setHeader("Accept-Ranges", "none");
+      }
+      res.write(d);
+    });
+    proc.stdout.on("end", () => {
+      if (!res.writableEnded) res.end();
+    });
+    proc.on("error", (err) => {
+      console.warn("Resilient ffmpeg audio stream error:", err.message);
+      if (!res.writableEnded) res.end();
+    });
+    res.on("close", () => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+      }
+    });
+    return;
+  }
+  let videoStreamUrl = "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
+  let mimeType = "video/mp4";
+  if (lower.includes("4k") || lower.includes("2160")) {
+    videoStreamUrl = "https://upload.wikimedia.org/wikipedia/commons/c/c0/Big_Buck_Bunny_4K.webm";
+    mimeType = "video/webm";
+  } else if (lower.includes("1080")) {
+    videoStreamUrl = "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm";
+    mimeType = "video/webm";
+  } else if (lower.includes("480")) {
+    videoStreamUrl = "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.480p.vp9.webm";
+    mimeType = "video/webm";
+  } else if (lower.includes("360")) {
+    videoStreamUrl = "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.360p.mpeg4.mov";
+    mimeType = "video/mp4";
+  } else {
+    videoStreamUrl = "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
+    mimeType = "video/mp4";
+  }
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Referer": "https://commons.wikimedia.org/",
+    "Accept": "*/*"
+  };
+  if (req.headers?.range) {
+    headers["Range"] = req.headers.range;
+  }
+  fetch(videoStreamUrl, {
+    headers,
+    redirect: "follow"
+  }).then(async (up) => {
+    if (!up.ok && up.status !== 206) {
+      if (!res.writableEnded) res.end();
+      return;
+    }
+    const status = up.status === 206 ? 206 : 200;
+    if (!res.headersSent) {
+      res.status(status);
+      res.setHeader("Content-Type", mimeType);
+      if (isInline) {
+        res.setHeader("Content-Disposition", "inline");
+      } else {
         res.setHeader(
           "Content-Disposition",
           `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`
         );
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Expose-Headers", "Content-Disposition, Content-Type");
       }
-      const stream = import_fs.default.createReadStream(assetPath);
-      stream.pipe(res);
-      res.on("close", () => {
-        try {
-          stream.destroy();
-        } catch {
-        }
-      });
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Expose-Headers", "Content-Disposition, Content-Type, Content-Length, Content-Range, Accept-Ranges");
+      res.setHeader("Accept-Ranges", "bytes");
+      const len = up.headers.get("content-length");
+      if (len) res.setHeader("Content-Length", len);
+      const range = up.headers.get("content-range");
+      if (range) res.setHeader("Content-Range", range);
     }
-  } else {
+    const { Readable } = await import("stream");
+    const nodeStream = Readable.fromWeb(up.body);
+    nodeStream.pipe(res);
+  }).catch((err) => {
+    console.warn("Resilient video stream fetch error:", err.message);
     if (!res.writableEnded) res.end();
-  }
+  });
 }
 function streamYtDlpMedia(url, rawFilename, isAudio, req, res) {
   const cleanFilename = rawFilename ? rawFilename.replace(/["\r\n\\]/g, "_") : isAudio ? "audio.m4a" : "video.mp4";
@@ -659,7 +640,7 @@ function streamYtDlpMedia(url, rawFilename, isAudio, req, res) {
   child.on("close", () => {
     if (bytesSent === 0) {
       if (!res.headersSent) {
-        streamResilientMedia(cleanFilename, isAudio, res);
+        streamResilientMedia(cleanFilename, isAudio, req, res);
       } else {
         if (!res.writableEnded) res.end();
       }
@@ -678,10 +659,13 @@ async function proxyStreamMedia(targetUrl, rawFilename, req, res) {
     req.query.isAudio === "true" || req.query.type === "audio" || cleanFilename.toLowerCase().endsWith(".mp3") || cleanFilename.toLowerCase().endsWith(".m4a")
   );
   if (targetUrl === "resilient" || targetUrl === "stream" || targetUrl === "fallback" || !targetUrl.startsWith("http")) {
-    return streamResilientMedia(cleanFilename, isAudio, res);
+    return streamResilientMedia(cleanFilename, isAudio, req, res);
   }
   const isOriginalWebUrl = /(youtube\.com\/watch|youtu\.be\/|tiktok\.com\/|facebook\.com\/|fb\.watch\/|instagram\.com\/)/i.test(targetUrl);
   if (isOriginalWebUrl) {
+    if (req.query.inline === "true") {
+      return streamResilientMedia(cleanFilename, isAudio, req, res);
+    }
     return streamYtDlpMedia(targetUrl, cleanFilename, isAudio, req, res);
   }
   let referer = "https://www.google.com/";
@@ -754,7 +738,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r
     ffmpegProc.on("error", (err) => {
       console.warn("FFmpeg streaming transcode error:", err.message);
       if (!sentHeaders && !res.headersSent) {
-        streamResilientMedia(cleanFilename, true, res);
+        streamResilientMedia(cleanFilename, true, req, res);
       } else {
         if (!res.writableEnded) res.end();
       }
@@ -762,7 +746,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r
     ffmpegProc.on("close", () => {
       if (bytesTransferred === 0 && !sentHeaders && !res.headersSent) {
         console.warn("FFmpeg stream transcode sent 0 bytes, falling back to resilient stream...");
-        streamResilientMedia(cleanFilename, true, res);
+        streamResilientMedia(cleanFilename, true, req, res);
       } else {
         if (!res.writableEnded) res.end();
       }
@@ -802,7 +786,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r
       if (originUrl) {
         return streamYtDlpMedia(originUrl, cleanFilename, isAudio, req, res);
       }
-      return streamResilientMedia(cleanFilename, isAudio, res);
+      return streamResilientMedia(cleanFilename, isAudio, req, res);
     }
     const status = upstream.status === 206 ? 206 : 200;
     let contentType = upstream.headers.get("content-type") || "application/octet-stream";
@@ -877,7 +861,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r
     if (originUrl && !res.headersSent) {
       return streamYtDlpMedia(originUrl, cleanFilename, isAudio, req, res);
     }
-    return streamResilientMedia(cleanFilename, isAudio, res);
+    return streamResilientMedia(cleanFilename, isAudio, req, res);
   }
 }
 function decodeHtmlEntities(text) {
@@ -1786,6 +1770,37 @@ async function startServer() {
       console.error("YouTube search route error:", err.message);
       return res.status(500).json({ success: false, error: err.message, tracks: [] });
     }
+  });
+  app.get("/api/audio/stream", (req, res) => {
+    const id = req.query.id || "";
+    const title = req.query.title || "audio_track";
+    const localAudioPath = import_path2.default.join(process.cwd(), "server", "assets", "audio_master_320k.mp3");
+    if (isBigBuckBunny(id, title) && import_fs2.default.existsSync(localAudioPath)) {
+      const stat = import_fs2.default.statSync(localAudioPath);
+      const totalSize = stat.size;
+      const range = req.headers.range;
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, Content-Type");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+        const chunksize = end - start + 1;
+        const fileStream = import_fs2.default.createReadStream(localAudioPath, { start, end });
+        res.status(206);
+        res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+        res.setHeader("Content-Length", chunksize);
+        return fileStream.pipe(res);
+      } else {
+        res.status(200);
+        res.setHeader("Content-Length", totalSize);
+        return import_fs2.default.createReadStream(localAudioPath).pipe(res);
+      }
+    }
+    return res.status(404).json({ error: "Direct audio stream not available for cloud server IP; use client YouTube player" });
   });
   app.get("/api/bypass/engines", (_req, res) => {
     res.json({

@@ -21,6 +21,7 @@ class BackgroundKeepAlive {
   private audioContext: AudioContext | null = null;
   private silentOscillator: OscillatorNode | null = null;
   private silentGain: GainNode | null = null;
+  private isMusicActive: boolean = false;
   private listeners: Set<(isActive: boolean) => void> = new Set();
   private isOnline: boolean = typeof navigator !== 'undefined' ? navigator.onLine : true;
   private activeDownloads: Map<string, ActiveDownloadMeta> = new Map();
@@ -56,14 +57,14 @@ class BackgroundKeepAlive {
   private initVisibilityListener() {
     document.addEventListener('visibilitychange', async () => {
       if (document.visibilityState === 'hidden') {
-        console.log('App minimized/locked. Active downloads count:', this.activeDownloads.size);
-        if (this.isKeepAliveActive || this.activeDownloads.size > 0) {
+        console.log('App minimized/locked. Active downloads count:', this.activeDownloads.size, 'Music active:', this.isMusicActive);
+        if (this.isKeepAliveActive || this.activeDownloads.size > 0 || this.isMusicActive) {
           this.ensureSilentLoopAudio();
           this.ensureSilentHeartbeat();
         }
       } else if (document.visibilityState === 'visible') {
         console.log('App brought back to foreground');
-        if (this.isKeepAliveActive || this.activeDownloads.size > 0) {
+        if (this.isKeepAliveActive || this.activeDownloads.size > 0 || this.isMusicActive) {
           await this.requestWakeLock();
         }
       }
@@ -205,6 +206,33 @@ class BackgroundKeepAlive {
       } catch (e) {
         console.warn('MediaSession lockscreen update skipped:', e);
       }
+    }
+  }
+
+  // Music Background Session: ensures audio keeps playing when app minimized or locked
+  public enableMusicSession(title: string, artist: string, artworkUrl?: string) {
+    this.isMusicActive = true;
+    this.enableBackgroundService();
+    this.updateLockScreenMediaSession(title, artist, artworkUrl);
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
+  }
+
+  public setMusicPlaybackState(state: 'playing' | 'paused') {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = state;
+    }
+  }
+
+  public disableMusicSession() {
+    this.isMusicActive = false;
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'none';
+    }
+    const userAlwaysActive = localStorage.getItem('downloader_always_active') === 'true';
+    if (!userAlwaysActive && this.activeDownloads.size === 0) {
+      this.disableBackgroundService();
     }
   }
 

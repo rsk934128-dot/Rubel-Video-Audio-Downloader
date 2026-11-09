@@ -1,11 +1,14 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { 
   resolveBypassMedia, 
   getBypassEngines, 
   proxyStreamMedia,
-  inspectMediaUrl 
+  inspectMediaUrl,
+  streamResilientMedia,
+  isBigBuckBunny
 } from './server/bypassEngine';
 import { searchYouTubeSongs } from './server/youtubeSearch';
 
@@ -35,6 +38,46 @@ async function startServer() {
       console.error('YouTube search route error:', err.message);
       return res.status(500).json({ success: false, error: err.message, tracks: [] });
     }
+  });
+
+  // Dedicated Ultra-Fast Native Audio Stream with HTTP Range Support & Background Playback
+  app.get('/api/audio/stream', (req: Request, res: Response) => {
+    const id = (req.query.id as string) || '';
+    const title = (req.query.title as string) || 'audio_track';
+    const localAudioPath = path.join(process.cwd(), 'server', 'assets', 'audio_master_320k.mp3');
+
+    // Only serve Big Buck Bunny cached audio when the track is Big Buck Bunny
+    if (isBigBuckBunny(id, title) && fs.existsSync(localAudioPath)) {
+      const stat = fs.statSync(localAudioPath);
+      const totalSize = stat.size;
+      const range = req.headers.range;
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges, Content-Type');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+        const chunksize = end - start + 1;
+        const fileStream = fs.createReadStream(localAudioPath, { start, end });
+
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+        res.setHeader('Content-Length', chunksize);
+        return fileStream.pipe(res);
+      } else {
+        res.status(200);
+        res.setHeader('Content-Length', totalSize);
+        return fs.createReadStream(localAudioPath).pipe(res);
+      }
+    }
+
+    // Do NOT serve Big Buck Bunny for other songs!
+    return res.status(404).json({ error: 'Direct audio stream not available for cloud server IP; use client YouTube player' });
   });
 
   // Bypass Engines status endpoint

@@ -483,49 +483,60 @@ export const VideoResultCard: React.FC<Props> = ({
 
         {/* Alternative External Direct Download Mirrors for YouTube */}
         {isYouTube && ytId && (
-          <div className="mt-5 p-4 rounded-2xl bg-gradient-to-r from-slate-950 to-slate-900 border border-slate-800/80">
+          <div className="mt-5 p-4 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950/40 border border-emerald-500/30">
             <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
               <div className="flex items-center gap-2">
-                <Flame className="w-4 h-4 text-amber-400" />
+                <Flame className="w-4 h-4 text-emerald-400" />
                 <h4 className="text-xs sm:text-sm font-bold text-white">
-                  {language === 'bn' ? 'অন্যান্য সরাসরি ডাউনলোড মিরর (External Direct Stream)' : 'Direct Raw Stream Mirrors'}
+                  {language === 'bn' ? 'আসল ফাইল সরাসরি ১-ক্লিক ডাউনলোড (Real Direct Download)' : 'Direct Real File 1-Click Download'}
                 </h4>
               </div>
-              <span className="text-[11px] text-slate-400">
-                {language === 'bn' ? 'ফুল 1080p ও হাই-স্পিড অডিও' : 'Unrestricted bitrates'}
+              <span className="text-[11px] text-emerald-400 font-medium">
+                {language === 'bn' ? '✓ কোনো ডামি ফাইল নয় • আসল ৩২০kbps ও ১০৮০p' : '✓ 100% Authentic Files'}
               </span>
             </div>
-            <p className="text-xs text-slate-400 mb-3">
+            <p className="text-xs text-slate-300 mb-3">
               {language === 'bn'
-                ? 'সরাসরি ইউটিউব সার্ভার থেকে ফুল লেন্থের মূল ভিডিও বা গান ডাউনলোড করতে নিচের মিরর লিঙ্কগুলো ব্যবহার করতে পারেন:'
-                : 'Directly download the full raw original file from external high-speed servers:'}
+                ? 'ইউটিউবের মূল সার্ভার থেকে সরাসরি আসল গান (MP3 320k) অথবা ফুল HD ভিডিও (MP4) ডাউনলোড করতে নিচের ১-ক্লিক বাটনগুলো ব্যবহার করুন:'
+                : 'Directly download the genuine high-bitrate MP3 audio or 1080p MP4 video without cloud IP restrictions:'}
             </p>
             <div className="flex items-center gap-2.5 flex-wrap">
+              <a
+                href={`https://yt1s.com/en?q=${encodeURIComponent(video.originalUrl)}`}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-950/40 transition hover:scale-[1.02]"
+              >
+                <Music className="w-3.5 h-3.5 text-white" />
+                <span>YT1s (আসল MP3 320k)</span>
+                <ExternalLink className="w-3 h-3 text-white/80" />
+              </a>
+              <a
+                href={`https://www.ssyoutube.com/watch?v=${ytId}`}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white text-xs font-bold shadow-md shadow-rose-950/40 transition hover:scale-[1.02]"
+              >
+                <Film className="w-3.5 h-3.5 text-white" />
+                <span>SSYouTube (আসল HD MP4)</span>
+                <ExternalLink className="w-3 h-3 text-white/80" />
+              </a>
               <a
                 href={`https://10downloader.com/download?v=${ytId}`}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs font-semibold border border-slate-700 transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
               >
-                <span>10Downloader (HD MP4)</span>
+                <span>10Downloader</span>
                 <ExternalLink className="w-3 h-3 text-slate-400" />
               </a>
               <a
                 href={`https://www.y2mate.com/youtube/${ytId}`}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-xs font-semibold border border-slate-700 transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
               >
-                <span>Y2Mate (MP3 / MP4)</span>
-                <ExternalLink className="w-3 h-3 text-slate-400" />
-              </a>
-              <a
-                href={`https://cobalt.tools`}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs font-semibold border border-slate-700 transition"
-              >
-                <span>Cobalt Tools</span>
+                <span>Y2Mate</span>
                 <ExternalLink className="w-3 h-3 text-slate-400" />
               </a>
             </div>

@@ -27,8 +27,10 @@ import {
   Database,
   Upload,
   FileSpreadsheet,
-  FileCode
+  FileCode,
+  ExternalLink
 } from 'lucide-react';
+import { extractYouTubeId } from '../services/videoExtractor';
 
 interface Props {
   history: DownloadTask[];
@@ -422,35 +424,74 @@ export const DownloadHistoryView: React.FC<Props> = ({
               )}
 
               {/* Inline player if active */}
-              {playingId === item.id && (
-                <div className="p-4 bg-slate-950/90 rounded-b-2xl border-x border-b border-slate-800 -mt-2 mb-3">
-                  {isAudio ? (
-                    <div className="flex items-center gap-4">
-                      <Disc3 className="w-8 h-8 text-rose-400 animate-spin shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-white line-clamp-1">{item.title}</p>
-                        <audio
-                          src={item.fileBlobUrl || (item.directUrl ? `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}` : undefined)}
-                          controls
-                          autoPlay
-                          className="w-full mt-2 h-9 accent-rose-500"
-                        />
+              {playingId === item.id && (() => {
+                const itemYtId = extractYouTubeId(item.originalUrl || '') || (item.videoId && item.videoId.length === 11 ? item.videoId : null);
+                const hasValidBlob = Boolean(item.fileBlobUrl && item.fileBlobUrl.startsWith('blob:'));
+
+                return (
+                  <div className="p-4 bg-slate-950/95 rounded-b-2xl border-x border-b border-slate-800 -mt-2 mb-3">
+                    {itemYtId && !hasValidBlob ? (
+                      <div className="flex flex-col items-center">
+                        <div className="w-full max-w-md aspect-video rounded-xl overflow-hidden bg-black border border-slate-800 shadow-xl">
+                          <iframe
+                            src={`https://www.youtube-nocookie.com/embed/${itemYtId}?autoplay=1&rel=0`}
+                            title={item.title}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                            className="w-full h-full border-0"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 mt-3 flex-wrap justify-center">
+                          <a
+                            href={`https://yt1s.com/en?q=${encodeURIComponent(item.originalUrl || `https://www.youtube.com/watch?v=${itemYtId}`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-md transition"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{language === 'bn' ? 'আসল MP3 (320k) ডাউনলোড' : 'Download Real MP3'}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                          <a
+                            href={`https://www.ssyoutube.com/watch?v=${itemYtId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white text-xs font-semibold shadow-md transition"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{language === 'bn' ? 'আসল HD ভিডিও ডাউনলোড' : 'Download Real Video'}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center">
-                      <div className="w-full max-w-md aspect-video rounded-xl overflow-hidden bg-black">
-                        <video
-                          src={item.fileBlobUrl || (item.directUrl ? `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}` : undefined)}
-                          controls
-                          autoPlay
-                          className="w-full h-full object-contain"
-                        />
+                    ) : isAudio ? (
+                      <div className="flex items-center gap-4">
+                        <Disc3 className="w-8 h-8 text-rose-400 animate-spin shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-white line-clamp-1">{item.title}</p>
+                          <audio
+                            src={item.fileBlobUrl || (item.directUrl ? `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}` : undefined)}
+                            controls
+                            autoPlay
+                            className="w-full mt-2 h-9 accent-rose-500"
+                          />
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <div className="w-full max-w-md aspect-video rounded-xl overflow-hidden bg-black border border-slate-800">
+                          <video
+                            src={item.fileBlobUrl || (item.directUrl ? `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}` : undefined)}
+                            controls
+                            autoPlay
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             );
           })}
