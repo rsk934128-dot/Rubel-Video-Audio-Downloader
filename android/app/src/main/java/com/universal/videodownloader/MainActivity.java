@@ -6,6 +6,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
+import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -13,6 +14,26 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BackgroundAudioPlugin.class);
         super.onCreate(savedInstanceState);
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        // Prevent Android WebView from pausing HTML5 <audio> and auto-next JS timers while music plays in background
+        if (BackgroundAudioService.isServiceRunning) {
+            try {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().resumeTimers();
+                    getBridge().getWebView().onResume();
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     /**

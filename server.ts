@@ -8,7 +8,9 @@ import {
   proxyStreamMedia,
   inspectMediaUrl,
   streamResilientMedia,
-  isBigBuckBunny
+  isBigBuckBunny,
+  resolveYouTubeAudioStreamUrl,
+  checkEtaCloudProgress
 } from './server/bypassEngine';
 import { searchYouTubeSongs } from './server/youtubeSearch';
 
@@ -40,8 +42,27 @@ async function startServer() {
     }
   });
 
+  // Pre-resolve direct MP3 audio URL for background playback
+  app.get('/api/audio/resolve', async (req: Request, res: Response) => {
+    const id = (req.query.id as string) || '';
+    if (!id) return res.status(400).json({ success: false, error: 'Missing id' });
+    try {
+      const resolved = await resolveYouTubeAudioStreamUrl(id);
+      if (resolved?.downloadUrl) {
+        return res.json({
+          success: true,
+          streamUrl: `/api/audio/stream?id=${encodeURIComponent(id)}&title=${encodeURIComponent(resolved.title || 'audio')}`,
+          title: resolved.title,
+        });
+      }
+      return res.status(404).json({ success: false, error: 'Audio stream could not be resolved' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Dedicated Ultra-Fast Native Audio Stream with HTTP Range Support & Background Playback
-  app.get('/api/audio/stream', (req: Request, res: Response) => {
+  app.get('/api/audio/stream', async (req: Request, res: Response) => {
     const id = (req.query.id as string) || '';
     const title = (req.query.title as string) || 'audio_track';
     const localAudioPath = path.join(process.cwd(), 'server', 'assets', 'audio_master_320k.mp3');
@@ -76,8 +97,21 @@ async function startServer() {
       }
     }
 
+    // Resolve and stream the REAL authentic MP3 audio for this specific YouTube song ID!
+    try {
+      const resolved = await resolveYouTubeAudioStreamUrl(id);
+      if (resolved?.downloadUrl) {
+        req.query.inline = 'true';
+        req.query.isAudio = 'true';
+        const safeName = `${(resolved.title || title).replace(/[\\/:*?"<>|]/g, '_')}.mp3`;
+        return proxyStreamMedia(resolved.downloadUrl, safeName, req, res);
+      }
+    } catch (err: any) {
+      console.warn('Audio stream resolution failed:', err.message);
+    }
+
     // Do NOT serve Big Buck Bunny for other songs!
-    return res.status(404).json({ error: 'Direct audio stream not available for cloud server IP; use client YouTube player' });
+    return res.status(404).json({ error: 'Direct audio stream unavailable for this track' });
   });
 
   // Bypass Engines status endpoint
@@ -219,6 +253,14 @@ async function startServer() {
     }
 
     try {
+      if (progressUrl.startsWith('etacloud::')) {
+        const etaProg = await checkEtaCloudProgress(progressUrl);
+        if (!etaProg) {
+          return res.status(500).json({ success: false, error: 'EtaCloud progress check failed' });
+        }
+        return res.json(etaProg);
+      }
+
       const resp = await fetch(progressUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',

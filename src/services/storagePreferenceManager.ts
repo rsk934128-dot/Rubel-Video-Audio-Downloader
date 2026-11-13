@@ -370,9 +370,31 @@ class StoragePreferenceManager {
     };
   }
 
-  // Trigger browser download anchor element
+  // Trigger browser download anchor element (with hidden-iframe fallback when async polling outlives userActivation)
   public triggerNativeDownload(fileName: string, url: string): void {
     try {
+      const hasUserActivation =
+        typeof navigator !== 'undefined' && 'userActivation' in navigator
+          ? Boolean((navigator as any).userActivation?.isActive)
+          : true;
+
+      // Mobile Chrome & Android WebView ignore async <a download> clicks once the 5s user-activation window expires.
+      // Same-origin /api/proxy-download responds with Content-Disposition: attachment, which downloads reliably via a hidden iframe!
+      const isServerAttachmentUrl = url.startsWith('/api/') || (typeof window !== 'undefined' && url.startsWith(window.location.origin + '/api/'));
+      if (!hasUserActivation && isServerAttachmentUrl) {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 120000);
+        return;
+      }
+
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName;

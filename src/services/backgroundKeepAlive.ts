@@ -58,9 +58,11 @@ class BackgroundKeepAlive {
     document.addEventListener('visibilitychange', async () => {
       if (document.visibilityState === 'hidden') {
         console.log('App minimized/locked. Active downloads count:', this.activeDownloads.size, 'Music active:', this.isMusicActive);
-        if (this.isKeepAliveActive || this.activeDownloads.size > 0 || this.isMusicActive) {
-          this.ensureSilentLoopAudio();
-          this.ensureSilentHeartbeat();
+        if (this.isKeepAliveActive || this.activeDownloads.size > 0) {
+          if (!this.isMusicActive) {
+            this.ensureSilentLoopAudio();
+            this.ensureSilentHeartbeat();
+          }
         }
       } else if (document.visibilityState === 'visible') {
         console.log('App brought back to foreground');
@@ -212,6 +214,9 @@ class BackgroundKeepAlive {
   // Music Background Session: ensures audio keeps playing when app minimized or locked
   public enableMusicSession(title: string, artist: string, artworkUrl?: string) {
     this.isMusicActive = true;
+    // Stop silent loop so ONLY the real <audio> element holds Android AudioFocus & MediaSession
+    this.stopSilentLoopAudio();
+    this.stopSilentHeartbeat();
     this.enableBackgroundService();
     this.updateLockScreenMediaSession(title, artist, artworkUrl);
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
@@ -284,7 +289,7 @@ class BackgroundKeepAlive {
   public unregisterDownload(id: string) {
     this.activeDownloads.delete(id);
 
-    if (this.activeDownloads.size === 0) {
+    if (this.activeDownloads.size === 0 && !this.isMusicActive) {
       if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'none';
       }
@@ -298,8 +303,11 @@ class BackgroundKeepAlive {
 
   private async enableBackgroundService() {
     await this.requestWakeLock();
-    this.ensureSilentLoopAudio();
-    this.ensureSilentHeartbeat();
+    // Only use silent keep-alive audio when no real music track is playing
+    if (!this.isMusicActive) {
+      this.ensureSilentLoopAudio();
+      this.ensureSilentHeartbeat();
+    }
 
     if (!this.heartbeatInterval) {
       this.heartbeatInterval = setInterval(() => {

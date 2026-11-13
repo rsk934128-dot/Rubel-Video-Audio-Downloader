@@ -31,6 +31,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { extractYouTubeId } from '../services/videoExtractor';
+import historyVaultImg from '../assets/images/app_empty_history_vault_1794589327768.jpg';
 
 interface Props {
   history: DownloadTask[];
@@ -69,7 +70,8 @@ export const DownloadHistoryView: React.FC<Props> = ({
   };
 
   const handleSaveToSDCard = async (item: DownloadTask) => {
-    const targetUrl = item.fileBlobUrl || (item.directUrl ? `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}&filename=${encodeURIComponent(item.fileName)}&stream=true` : null);
+    const isAudioItem = item.format?.type === 'audio';
+    const targetUrl = item.fileBlobUrl || (item.directUrl ? `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}&originUrl=${encodeURIComponent(item.originalUrl || '')}&filename=${encodeURIComponent(item.fileName)}&isAudio=${isAudioItem}&stream=true` : null);
     if (!targetUrl) {
       onRetry(item);
       return;
@@ -92,7 +94,8 @@ export const DownloadHistoryView: React.FC<Props> = ({
       return;
     }
     if (item.directUrl) {
-      const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}&filename=${encodeURIComponent(item.fileName)}&stream=true`;
+      const isAudioItem = item.format?.type === 'audio';
+      const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}&originUrl=${encodeURIComponent(item.originalUrl || '')}&filename=${encodeURIComponent(item.fileName)}&isAudio=${isAudioItem}&stream=true`;
       triggerBrowserDownload(item.fileName, proxyUrl);
       return;
     }
@@ -231,9 +234,14 @@ export const DownloadHistoryView: React.FC<Props> = ({
 
       {/* History List */}
       {history.length === 0 ? (
-        <div className="p-12 text-center rounded-3xl bg-slate-900/60 border border-slate-800">
-          <div className="w-16 h-16 rounded-2xl bg-slate-800 text-slate-500 mx-auto flex items-center justify-center mb-4">
-            <Download className="w-8 h-8" />
+        <div className="p-8 sm:p-12 text-center rounded-3xl bg-slate-900/60 border border-slate-800">
+          <div className="w-56 aspect-[4/3] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl mx-auto mb-5">
+            <img
+              src={historyVaultImg}
+              alt={language === 'bn' ? 'মিডিয়া আর্কাইভ ভল্ট' : 'Media Archive Vault'}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover"
+            />
           </div>
           <h3 className="text-base font-bold text-white">
             {t.noHistory}
@@ -270,11 +278,13 @@ export const DownloadHistoryView: React.FC<Props> = ({
                   {/* Thumbnail or Media Icon */}
                   <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-slate-950 border border-slate-800">
                     <img
-                      src={item.thumbnail}
+                      src={item.thumbnail || historyVaultImg}
                       alt={item.title}
+                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
+                        const img = e.currentTarget as HTMLImageElement;
+                        if (img.src !== historyVaultImg) img.src = historyVaultImg;
                       }}
                     />
                     <div className="absolute bottom-1 right-1 p-0.5 rounded bg-black/80 text-slate-200">

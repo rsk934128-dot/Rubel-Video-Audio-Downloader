@@ -3,7 +3,6 @@ import { MediaFormat, VideoMetadata, Language, DownloadTask } from '../types';
 import { getTranslation } from '../utils/translations';
 import { PlatformBadge } from './PlatformBadge';
 import { extractYouTubeId } from '../services/videoExtractor';
-import { triggerBrowserDownload } from '../services/downloadManager';
 import { 
   Download, 
   Music, 
@@ -24,6 +23,7 @@ import {
 } from 'lucide-react';
 import { storagePreferenceManager } from '../services/storagePreferenceManager';
 import { StorageConfig } from '../types';
+import studioFallbackImg from '../assets/images/app_hero_media_studio_1794589325721.jpg';
 
 interface Props {
   video: VideoMetadata;
@@ -84,13 +84,18 @@ export const VideoResultCard: React.FC<Props> = ({
         {/* Thumbnail with duration */}
         <div className="relative w-full md:w-64 h-44 sm:h-48 md:h-40 rounded-2xl overflow-hidden shrink-0 group shadow-lg bg-slate-950">
           <img
-            src={video.thumbnail}
+            src={video.thumbnail || studioFallbackImg}
             alt={video.title}
+            referrerPolicy="no-referrer"
             className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = ytId 
-                ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
-                : 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80';
+              const img = e.currentTarget as HTMLImageElement;
+              const fallback = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : studioFallbackImg;
+              if (img.src !== fallback) {
+                img.src = fallback;
+              } else if (img.src !== studioFallbackImg) {
+                img.src = studioFallbackImg;
+              }
             }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
@@ -239,25 +244,19 @@ export const VideoResultCard: React.FC<Props> = ({
                   ))}
                 </div>
 
-                {/* Direct Audio Stream element for playback */}
-                {isYouTube && ytId ? (
-                  <div className="w-full rounded-xl overflow-hidden border border-slate-800 bg-black">
-                    <iframe
-                      src={`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`}
-                      title={video.title}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                      className="w-full h-24 sm:h-28 border-0"
-                    />
-                  </div>
-                ) : (
-                  <audio
-                    src={video.sampleAudioUrl || (/\.(mp3|m4a|wav|ogg)$/i.test(video.originalUrl) ? video.originalUrl : undefined)}
-                    controls
-                    autoPlay
-                    className="w-full h-10 accent-rose-500"
-                  />
-                )}
+                {/* Direct Native Audio Stream element for uninterrupted background playback */}
+                <audio
+                  src={
+                    isYouTube && ytId
+                      ? `/api/audio/stream?id=${encodeURIComponent(ytId)}&title=${encodeURIComponent(video.title)}`
+                      : (video.sampleAudioUrl || (/\.(mp3|m4a|wav|ogg)$/i.test(video.originalUrl) ? video.originalUrl : undefined))
+                  }
+                  controls
+                  autoPlay
+                  playsInline
+                  preload="auto"
+                  className="w-full h-10 accent-rose-500"
+                />
               </div>
             </div>
           ) : (
@@ -426,14 +425,15 @@ export const VideoResultCard: React.FC<Props> = ({
                 {/* Download Action */}
                 {activeTask && activeTask.format.id === format.id && activeTask.status === 'completed' ? (
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button
+                    <a
                       id={`save-file-link-${format.id}`}
-                      onClick={() => triggerBrowserDownload(activeTask.fileName, activeTask.fileBlobUrl || activeTask.directUrl!)}
+                      href={activeTask.fileBlobUrl || activeTask.directUrl}
+                      download={activeTask.fileName}
                       className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-xs font-bold shadow-lg shadow-emerald-950/40 transition whitespace-nowrap"
                     >
                       <CheckCircle2 className="w-4 h-4 text-white" />
                       <span>{language === 'bn' ? 'ফাইল সেভ করুন' : 'Save File'}</span>
-                    </button>
+                    </a>
                     <button
                       onClick={() => onDownload(format)}
                       className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"

@@ -1,4 +1,7 @@
 import { MediaFormat, PlatformType, VideoMetadata } from '../types';
+import heroStudioThumb from '../assets/images/app_hero_media_studio_1794589325721.jpg';
+import musicStudioThumb from '../assets/images/app_music_vinyl_cover_1794589327282.jpg';
+import batchStudioThumb from '../assets/images/app_batch_pipeline_visual_1794589328617.jpg';
 
 // Sample item interface (kept for type compatibility)
 export interface SampleVideoItem {
@@ -631,7 +634,7 @@ export async function extractVideoInfo(rawInput: string): Promise<VideoMetadata>
       platform: 'youtube' as const,
       title: 'Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film',
       author: 'Blender Foundation (Peach Open Movie Project)',
-      authorAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80',
+      authorAvatar: '/pwa-192x192.png',
       duration: '10:34',
       durationSeconds: 634,
       viewCount: '4K Ultra HD ভেরিফাইড',
@@ -779,7 +782,7 @@ export async function extractVideoInfo(rawInput: string): Promise<VideoMetadata>
     let author = 'YouTube Creator';
     let thumbnail = ytId 
       ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
-      : 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80';
+      : heroStudioThumb;
     
     // Query server-side oEmbed endpoint
     try {
@@ -832,7 +835,7 @@ export async function extractVideoInfo(rawInput: string): Promise<VideoMetadata>
       durationSeconds,
       viewCount: '450K views',
       uploadDate: 'Facebook Watch',
-      thumbnail: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80',
+      thumbnail: heroStudioThumb,
       description: 'ফেসবুক ওয়াচ ভিডিও। ফুল এইচডি ১০৮০p ও ৩২০kbps অডিও ফরম্যাট প্রস্তুত।',
       formats: generateFormatList(durationSeconds, 'facebook'),
       sampleVideoUrl: 'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
@@ -854,7 +857,7 @@ export async function extractVideoInfo(rawInput: string): Promise<VideoMetadata>
       durationSeconds: Math.max(60, durationSeconds),
       viewCount: '890K views',
       uploadDate: 'Instagram Reels',
-      thumbnail: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80',
+      thumbnail: batchStudioThumb,
       description: 'ইনস্টাগ্রাম রিলস। 1080x1920 ভার্টিক্যাল এইচডি এমপি৪ ও রিলস অডিও।',
       formats: generateFormatList(Math.max(60, durationSeconds), 'instagram'),
       sampleVideoUrl: 'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
@@ -876,7 +879,7 @@ export async function extractVideoInfo(rawInput: string): Promise<VideoMetadata>
       durationSeconds,
       viewCount: '3.1M views',
       uploadDate: 'TikTok',
-      thumbnail: 'https://images.unsplash.com/photo-1516251193007-45ef944ab0c6?auto=format&fit=crop&w=800&q=80',
+      thumbnail: batchStudioThumb,
       description: 'টিকটক নো-ওয়াটারমার্ক অরিজিনাল ফুল এইচডি ভিডিও ও অডিও প্রস্তুত।',
       formats: generateFormatList(durationSeconds, 'tiktok'),
       sampleVideoUrl: 'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
@@ -898,8 +901,8 @@ export async function extractVideoInfo(rawInput: string): Promise<VideoMetadata>
     viewCount: 'Verified Source',
     uploadDate: 'Direct Stream',
     thumbnail: isDirectAudio 
-      ? 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80'
-      : 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=800&q=80',
+      ? musicStudioThumb
+      : heroStudioThumb,
     description: isDirectAudio 
       ? 'সরাসরি অডিও ফাইল ডিটেক্ট হয়েছে। শুধুমাত্র অডিও ফরম্যাটগুলো সক্রিয় করা হয়েছে।'
       : 'Extracted universal media container. Multi-bitrate MP3 and MP4 export ready.',

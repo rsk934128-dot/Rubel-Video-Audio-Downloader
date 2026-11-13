@@ -632,11 +632,12 @@ export default function App() {
         task={activeTask}
         onCancel={handleCancelDownload}
         onRetry={(failedTask) => {
-          if (failedTask && failedTask.format) {
-            handleDownload(failedTask.format);
+          if (failedTask) {
+            handleRetryHistoryItem(failedTask);
           }
         }}
         onOpenStorageSettings={() => setIsStorageModalOpen(true)}
+        hasMusicPlayer={Boolean(playingTrack)}
         language={language}
       />
 
@@ -644,6 +645,7 @@ export default function App() {
       {playingTrack && (
         <MusicPlayerBar
           track={playingTrack}
+          playlist={activePlaylist}
           isPlaying={isPlayingSong}
           onPlayPause={() => setIsPlayingSong(!isPlayingSong)}
           onClose={() => {
@@ -654,6 +656,10 @@ export default function App() {
           onDownloadVideo={handleDownloadYouTubeVideo}
           onNext={handleNextSong}
           onPrev={handlePrevSong}
+          onSelectTrack={(nextTrack) => {
+            setPlayingTrack(nextTrack);
+            setIsPlayingSong(true);
+          }}
         />
       )}
 
@@ -695,6 +701,7 @@ export default function App() {
         onOpenStorageModal={() => setIsStorageModalOpen(true)}
         isLoading={isLoading}
         hasActiveTask={!!activeTask}
+        hasMusicPlayer={Boolean(playingTrack)}
         language={language}
       />
 

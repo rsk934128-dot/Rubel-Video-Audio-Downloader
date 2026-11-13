@@ -4,6 +4,9 @@ import { getTranslation } from '../utils/translations';
 import { ShareListenerBanner } from './ShareListenerBanner';
 import { VideoResultCard } from './VideoResultCard';
 import { VideoMiniPlayerPreview } from './VideoMiniPlayerPreview';
+import heroStudioImg from '../assets/images/app_hero_media_studio_1794589325721.jpg';
+import musicCoverImg from '../assets/images/app_music_vinyl_cover_1794589327282.jpg';
+import mobilePwaImg from '../assets/images/readme_mobile_pwa_1794589128878.jpg';
 import { 
   Link as LinkIcon, 
   ClipboardPaste, 
@@ -90,18 +93,40 @@ export const DownloaderView: React.FC<Props> = ({
 
   return (
     <div className="w-full max-w-4xl mx-auto py-2 sm:py-6">
-      {/* Hero Header */}
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-semibold mb-3">
-          <Sparkles className="w-3.5 h-3.5 text-rose-400" />
-          <span>{language === 'bn' ? 'শেয়ার লিঙ্ক থেকে সরাসরি ডাউনলোড' : 'Direct Stream & Share-to-Download'}</span>
+      {/* Hero Header with Visual Studio Showcase */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-6 mb-7">
+        <div className="lg:col-span-7 text-center lg:text-left">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-semibold mb-3">
+            <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+            <span>{language === 'bn' ? 'শেয়ার লিঙ্ক থেকে সরাসরি ডাউনলোড' : 'Direct Stream & Share-to-Download'}</span>
+          </div>
+          <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
+            {t.appTitle}
+          </h2>
+          <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto lg:mx-0 mt-2.5 leading-relaxed">
+            {t.appSubtitle}
+          </p>
         </div>
-        <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
-          {t.appTitle}
-        </h2>
-        <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto mt-2 leading-relaxed">
-          {t.appSubtitle}
-        </p>
+
+        <div className="lg:col-span-5">
+          <div className="relative aspect-[16/9] max-h-48 sm:max-h-52 w-full rounded-2xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl shadow-rose-950/20 group">
+            <img
+              src={heroStudioImg}
+              alt={language === 'bn' ? 'ফুল এইচডি ভিডিও ও অডিও স্টুডিও প্রিভিউ' : 'Full HD Video & Audio Extraction Studio'}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent pointer-events-none" />
+            <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between gap-2 text-[11px]">
+              <span className="font-semibold text-white/95 truncate">
+                {language === 'bn' ? '৪কে • ১০৮০p HD এবং ৩২০kbps অডিও' : '4K • 1080p HD & 320kbps Audio'}
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono text-[10px] shrink-0">
+                MP4 / MP3
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Share Intent listener / test banner */}
@@ -287,31 +312,49 @@ export const DownloaderView: React.FC<Props> = ({
         />
       )}
 
-      {/* Feature Highlights Grid */}
+      {/* Feature Highlights Visual Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center shrink-0">
-            <VideoIcon className="w-4 h-4" />
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 overflow-hidden group hover:border-rose-500/30 transition">
+          <div className="relative aspect-[16/9] w-full overflow-hidden bg-slate-950">
+            <img
+              src={heroStudioImg}
+              alt="1080p Full HD MP4"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-950/20 to-transparent" />
+            <div className="absolute bottom-2.5 left-3 w-8 h-8 rounded-xl bg-rose-500/20 backdrop-blur-md border border-rose-500/30 text-rose-300 flex items-center justify-center">
+              <VideoIcon className="w-4 h-4" />
+            </div>
           </div>
-          <div>
-            <h4 className="text-xs font-bold text-white">
+          <div className="p-4 pt-3">
+            <h4 className="text-xs sm:text-sm font-bold text-white">
               {language === 'bn' ? '১০৮০p ফুল এইচডি ভিডিও' : '1080p Full HD MP4'}
             </h4>
-            <p className="text-[11px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
               {language === 'bn' ? 'ক্রিস্টাল ক্লিয়ার রেজোলিউশন ও ৬০fps স্মুথ ফ্রেমরেট' : 'Crystal clear resolution with 60fps high bitrate'}
             </p>
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
-            <Headphones className="w-4 h-4" />
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 overflow-hidden group hover:border-purple-500/30 transition">
+          <div className="relative aspect-[16/9] w-full overflow-hidden bg-slate-950">
+            <img
+              src={musicCoverImg}
+              alt="320 kbps Ultra MP3"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-950/20 to-transparent" />
+            <div className="absolute bottom-2.5 left-3 w-8 h-8 rounded-xl bg-purple-500/20 backdrop-blur-md border border-purple-500/30 text-purple-300 flex items-center justify-center">
+              <Headphones className="w-4 h-4" />
+            </div>
           </div>
-          <div>
-            <h4 className="text-xs font-bold text-white">
+          <div className="p-4 pt-3">
+            <h4 className="text-xs sm:text-sm font-bold text-white">
               {language === 'bn' ? '৩২০ kbps আল্ট্রা অডিও (MP3)' : '320 kbps Ultra MP3'}
             </h4>
-            <p className="text-[11px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
               {language === 'bn' ? 'মিউজিক ট্র্যাকের জন্য স্টুডিও কোয়ালিটি বিটরেট ও ট্যাগ' : 'Studio grade bitrate with embedded ID3 meta tags'}
             </p>
           </div>
@@ -319,23 +362,29 @@ export const DownloaderView: React.FC<Props> = ({
 
         <div 
           onClick={onOpenPWAGuide}
-          className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-sky-950/40 border border-sky-500/20 hover:border-sky-500/40 transition cursor-pointer flex items-start gap-3 group shadow-lg"
+          className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-sky-950/40 border border-sky-500/20 hover:border-sky-500/40 transition cursor-pointer overflow-hidden group shadow-lg"
         >
-          <div className="w-9 h-9 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
-            <Zap className="w-4 h-4 text-sky-400" />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-white group-hover:text-sky-300 transition flex items-center gap-1.5">
-                <span>{language === 'bn' ? 'PWA Web Share Target টিউটোরিয়াল ও গাইড' : 'PWA Web Share Target Guide & Config'}</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">
-                  Documentation
-                </span>
-              </h4>
-              <ArrowRight className="w-3.5 h-3.5 text-sky-400 group-hover:translate-x-1 transition" />
+          <div className="relative aspect-[16/9] w-full overflow-hidden bg-slate-950">
+            <img
+              src={mobilePwaImg}
+              alt="PWA Web Share Target"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-950/25 to-transparent" />
+            <div className="absolute bottom-2.5 left-3 w-8 h-8 rounded-xl bg-sky-500/20 backdrop-blur-md border border-sky-500/30 text-sky-300 flex items-center justify-center">
+              <Zap className="w-4 h-4 text-sky-400" />
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {language === 'bn' ? 'কীভাবে manifest.json কনফিগার করে ইউটিউব থেকে সরাসরি শেয়ার করবেন তা দেখুন।' : 'Learn how to configure manifest.json to enable direct mobile browser sharing.'}
+          </div>
+          <div className="p-4 pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-sky-300 transition">
+                {language === 'bn' ? 'PWA Web Share Target গাইড' : 'PWA Web Share Target Guide'}
+              </h4>
+              <ArrowRight className="w-3.5 h-3.5 text-sky-400 group-hover:translate-x-1 transition shrink-0" />
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+              {language === 'bn' ? 'ইউটিউব বা ফেসবুক অ্যাপ থেকে সরাসরি শেয়ার করে ডাউনলোড শিখুন।' : 'Learn how to configure manifest.json to enable direct mobile browser sharing.'}
             </p>
           </div>
         </div>

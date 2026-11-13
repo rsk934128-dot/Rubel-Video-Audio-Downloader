@@ -25,6 +25,7 @@ interface Props {
   onRetry?: (task: DownloadTask) => void;
   onOpenPreview?: (task: DownloadTask) => void;
   onOpenStorageSettings?: () => void;
+  hasMusicPlayer?: boolean;
   language: Language;
 }
 
@@ -34,6 +35,7 @@ export const ActiveDownloadBar: React.FC<Props> = ({
   onRetry,
   onOpenPreview,
   onOpenStorageSettings,
+  hasMusicPlayer = false,
   language,
 }) => {
   const t = getTranslation(language);
@@ -82,7 +84,7 @@ export const ActiveDownloadBar: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 max-w-3xl mx-auto z-40 animate-in fade-in slide-in-from-bottom-5 duration-300">
+    <div className={`fixed ${hasMusicPlayer ? 'bottom-20 sm:bottom-24' : 'bottom-4'} left-3 right-3 sm:left-4 sm:right-4 max-w-3xl mx-auto z-[45] animate-in fade-in slide-in-from-bottom-5 duration-300 transition-all`}>
       <div className={`p-4 rounded-2xl border shadow-2xl backdrop-blur-xl ${
         isCompleted
           ? 'bg-slate-900/95 border-emerald-500/40 shadow-emerald-950/40'
@@ -166,14 +168,15 @@ export const ActiveDownloadBar: React.FC<Props> = ({
                   <span>{language === 'bn' ? 'মেমোরি কার্ডে সেভ' : 'Save to SD'}</span>
                 </button>
 
-                <button
+                <a
                   id="direct-save-file-link"
-                  onClick={() => triggerBrowserDownload(task.fileName, task.fileBlobUrl || task.directUrl!)}
+                  href={task.fileBlobUrl || task.directUrl}
+                  download={task.fileName}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>{language === 'bn' ? 'ফাইল সেভ' : 'Save File'}</span>
-                </button>
+                </a>
 
                 <button
                   id="save-again-btn"
@@ -244,6 +247,14 @@ export const ActiveDownloadBar: React.FC<Props> = ({
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
               <span>{savedToSDMsg}</span>
             </span>
+          </div>
+        )}
+
+        {/* Explicit error reason when failed */}
+        {isFailed && task.error && (
+          <div className="mb-2 px-3 py-1.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-[11px] text-rose-200 flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <span className="line-clamp-2">{task.error}</span>
           </div>
         )}
 

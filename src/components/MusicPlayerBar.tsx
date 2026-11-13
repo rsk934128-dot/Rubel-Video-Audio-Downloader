@@ -20,10 +20,12 @@ import {
 } from 'lucide-react';
 import { YouTubeSongTrack } from '../types';
 import { backgroundKeepAlive } from '../services/backgroundKeepAlive';
-import { androidBackgroundAudio } from '../services/androidBackgroundAudio';
+import { androidBackgroundAudio, NativePlaylistTrack } from '../services/androidBackgroundAudio';
+import musicFallbackArt from '../assets/images/app_music_vinyl_cover_1794589327282.jpg';
 
 interface Props {
   track: YouTubeSongTrack | null;
+  playlist?: YouTubeSongTrack[];
   isPlaying: boolean;
   onPlayPause: () => void;
   onClose: () => void;
@@ -31,10 +33,44 @@ interface Props {
   onDownloadVideo: (track: YouTubeSongTrack) => void;
   onNext?: () => void;
   onPrev?: () => void;
+  onSelectTrack?: (track: YouTubeSongTrack) => void;
+}
+
+function getYouTubeIdForTrack(t: YouTubeSongTrack | null): string {
+  if (!t) return '';
+  if (t.id && t.id.length === 11) return t.id;
+  const match = t.url?.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match?.[1] || t.id || '';
+}
+
+function getStreamUrlForTrack(t: YouTubeSongTrack | null): string {
+  if (!t) return '';
+  const isYt = Boolean(t.id || (t.url && t.url.includes('youtu')));
+  const ytId = getYouTubeIdForTrack(t);
+  if (isYt && ytId) {
+    return `/api/audio/stream?id=${encodeURIComponent(ytId)}&title=${encodeURIComponent(t.title)}`;
+  }
+  return t.url || '';
+}
+
+function toAbsoluteHttpUrl(pathOrUrl: string): string {
+  if (!pathOrUrl) return '';
+  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    return pathOrUrl;
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    try {
+      return new URL(pathOrUrl, window.location.origin).href;
+    } catch {
+      return pathOrUrl;
+    }
+  }
+  return pathOrUrl;
 }
 
 export const MusicPlayerBar: React.FC<Props> = ({
   track,
+  playlist = [],
   isPlaying,
   onPlayPause,
   onClose,
@@ -42,6 +78,7 @@ export const MusicPlayerBar: React.FC<Props> = ({
   onDownloadVideo,
   onNext,
   onPrev,
+  onSelectTrack,
 }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
@@ -51,17 +88,25 @@ export const MusicPlayerBar: React.FC<Props> = ({
   const [duration, setDuration] = useState(180);
   const [isBuffering, setIsBuffering] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [nativePlaybackActive, setNativePlaybackActive] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const progressBarRef = useRef<HTMLDivElement | null>(null);
   const miniProgressBarRef = useRef<HTMLDivElement | null>(null);
+  const lastLoadedStreamRef = useRef<string>('');
+  const currentTimeRef = useRef<number>(0);
 
-  // Check if track is a YouTube track
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
   const isYouTube = Boolean(track && (track.id || (track.url && track.url.includes('youtu'))));
-  const youtubeVideoId = track ? (track.id.length === 11 ? track.id : (track.url.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1] || track.id)) : '';
+  const youtubeVideoId = getYouTubeIdForTrack(track);
+  const activeStreamUrl = getStreamUrlForTrack(track);
+  const useIframeMode = Boolean(isYouTube && youtubeVideoId && isExpanded && showVideo);
 
-  // Direct helper to send commands to YouTube IFrame API
+  // Direct helper to send commands to YouTube IFrame API (only when Video Watch Mode is toggled on)
   const postIframeCommand = useCallback((func: string, args: any = '') => {
     if (iframeRef.current && iframeRef.current.contentWindow) {
       try {
@@ -75,14 +120,129 @@ export const MusicPlayerBar: React.FC<Props> = ({
     }
   }, []);
 
-  // 1. Play/Pause synchronization with YouTube iframe or native audio, plus Android Foreground Service
+  // Build native playlist payload for Capacitor Android Foreground Service
+  const buildNativePlaylist = useCallback((): NativePlaylistTrack[] => {
+    if (!playlist || playlist.length === 0) return [];
+    return playlist.map((item) => ({
+      id: item.id,
+      title: item.title,
+      artist: item.artist,
+      artworkUrl: item.albumArt || item.thumbnail,
+      streamUrl: toAbsoluteHttpUrl(getStreamUrlForTrack(item)),
+    }));
+  }, [playlist]);
+
+  // 1. Track Change: load persistent <audio> directly without unmounting DOM node & pre-warm next track
+  useEffect(() => {
+    if (!track) return;
+
+    setDuration(track.durationSeconds || 180);
+    setCurrentTime(0);
+    setAudioError(null);
+    setIsBuffering(!useIframeMode);
+
+    backgroundKeepAlive.enableMusicSession(
+      track.title,
+      track.artist,
+      track.albumArt || track.thumbnail
+    );
+
+    const absoluteStream = toAbsoluteHttpUrl(activeStreamUrl);
+    const nativeList = buildNativePlaylist();
+
+    // Start / update Android Foreground Service (with native MediaPlayer if remote URL is reachable)
+    androidBackgroundAudio
+      .startForeground({
+        trackId: track.id,
+        title: track.title,
+        artist: track.artist,
+        artworkUrl: track.albumArt || track.thumbnail,
+        streamUrl: useIframeMode ? undefined : absoluteStream,
+        isPlaying,
+        isLooping,
+        playlist: nativeList,
+      })
+      .then((res) => {
+        setNativePlaybackActive(res.nativePlayback && !useIframeMode);
+        if (res.nativePlayback && !useIframeMode && audioRef.current) {
+          audioRef.current.pause();
+        }
+      });
+
+    // WebView / Chrome HTML5 <audio> playback (used in browsers, PWAs, and when nativePlayback is false)
+    if (!useIframeMode && audioRef.current && activeStreamUrl) {
+      const el = audioRef.current;
+      if (lastLoadedStreamRef.current !== activeStreamUrl) {
+        lastLoadedStreamRef.current = activeStreamUrl;
+        el.src = activeStreamUrl;
+        el.load();
+      }
+      if (isPlaying && !nativePlaybackActive) {
+        el.play().catch((err) => {
+          console.warn('HTML5 audio play awaiting gesture or buffer:', err?.message);
+        });
+      }
+    }
+
+    // Pre-warm NEXT song in playlist after 2.5s so track-to-track auto-play is instantaneous
+    let warmupTimer: any = null;
+    if (playlist.length > 1) {
+      const idx = playlist.findIndex((t) => t.id === track.id);
+      const nextTrack = idx !== -1 ? playlist[(idx + 1) % playlist.length] : playlist[0];
+      const nextYtId = getYouTubeIdForTrack(nextTrack);
+      if (nextYtId) {
+        warmupTimer = setTimeout(() => {
+          fetch(`/api/audio/resolve?id=${encodeURIComponent(nextYtId)}`).catch(() => {});
+        }, 2500);
+      }
+    }
+
+    return () => {
+      if (warmupTimer) clearTimeout(warmupTimer);
+    };
+  }, [track?.id, activeStreamUrl, useIframeMode]);
+
+  // 2. Register MediaSession lock-screen controls
+  useEffect(() => {
+    if (!track || typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (!isPlaying) onPlayPause();
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (isPlaying) onPlayPause();
+      });
+      if (onNext) navigator.mediaSession.setActionHandler('nexttrack', () => onNext());
+      if (onPrev) navigator.mediaSession.setActionHandler('previoustrack', () => onPrev());
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime !== undefined) {
+          handleSeekToSeconds(details.seekTime);
+        }
+      });
+      navigator.mediaSession.setActionHandler('seekbackward', () => {
+        handleSeekToSeconds(Math.max(0, currentTimeRef.current - 10));
+      });
+      navigator.mediaSession.setActionHandler('seekforward', () => {
+        handleSeekToSeconds(Math.min(duration, currentTimeRef.current + 10));
+      });
+    } catch (e) {
+      console.warn('MediaSession handler registration skipped:', e);
+    }
+  }, [track?.id, isPlaying, duration, onPlayPause, onNext, onPrev]);
+
+  // 3. Play/Pause synchronization
   useEffect(() => {
     if (!track) return;
 
     if (isPlaying) {
-      if (isYouTube) {
+      if (useIframeMode) {
+        if (audioRef.current) audioRef.current.pause();
         postIframeCommand('playVideo');
-      } else if (audioRef.current) {
+      } else if (!nativePlaybackActive && audioRef.current) {
+        if (!audioRef.current.src && activeStreamUrl) {
+          audioRef.current.src = activeStreamUrl;
+          lastLoadedStreamRef.current = activeStreamUrl;
+        }
         audioRef.current.play().catch((err) => {
           console.warn('Native audio play error:', err);
         });
@@ -93,75 +253,22 @@ export const MusicPlayerBar: React.FC<Props> = ({
         track.artist,
         track.albumArt || track.thumbnail
       );
-
-      // Start Android Foreground Service for persistent playback when minimized
-      androidBackgroundAudio.startForeground({
-        title: track.title,
-        artist: track.artist,
-        artworkUrl: track.albumArt || track.thumbnail,
-        isPlaying: true,
-      });
+      androidBackgroundAudio.updateMetadata({ isPlaying: true, isLooping });
     } else {
-      if (isYouTube) {
+      if (useIframeMode) {
         postIframeCommand('pauseVideo');
-      } else if (audioRef.current) {
+      }
+      if (audioRef.current) {
         audioRef.current.pause();
       }
-
       backgroundKeepAlive.setMusicPlaybackState('paused');
-      androidBackgroundAudio.updateMetadata({ isPlaying: false });
+      androidBackgroundAudio.updateMetadata({ isPlaying: false, isLooping });
     }
-  }, [isPlaying, track, isYouTube, postIframeCommand]);
+  }, [isPlaying, useIframeMode, nativePlaybackActive, isLooping, track, activeStreamUrl, postIframeCommand]);
 
-  // 2. Track Change: Immediately load new track and start playing with zero delay
+  // 4. Listen to YouTube postMessage events ONLY when video iframe mode is open
   useEffect(() => {
-    if (!track) return;
-
-    setDuration(track.durationSeconds || 180);
-    setCurrentTime(0);
-    setAudioError(null);
-    setIsBuffering(false);
-
-    // Setup native lock-screen MediaSession controls
-    backgroundKeepAlive.enableMusicSession(
-      track.title,
-      track.artist,
-      track.albumArt || track.thumbnail
-    );
-
-    // Update Android Foreground Service with new track metadata
-    androidBackgroundAudio.startForeground({
-      title: track.title,
-      artist: track.artist,
-      artworkUrl: track.albumArt || track.thumbnail,
-      isPlaying,
-    });
-
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.setActionHandler('play', () => onPlayPause());
-        navigator.mediaSession.setActionHandler('pause', () => onPlayPause());
-        if (onNext) navigator.mediaSession.setActionHandler('nexttrack', () => onNext());
-        if (onPrev) navigator.mediaSession.setActionHandler('previoustrack', () => onPrev());
-        navigator.mediaSession.setActionHandler('seekto', (details) => {
-          if (details.seekTime !== undefined) {
-            handleSeekToSeconds(details.seekTime);
-          }
-        });
-        navigator.mediaSession.setActionHandler('seekbackward', () => {
-          handleSeekToSeconds(Math.max(0, currentTime - 10));
-        });
-        navigator.mediaSession.setActionHandler('seekforward', () => {
-          handleSeekToSeconds(Math.min(duration, currentTime + 10));
-        });
-      } catch (e) {
-        console.warn('MediaSession handler registration skipped:', e);
-      }
-    }
-  }, [track]);
-
-  // 3. Listen to YouTube postMessage events for accurate time tracking and track end
-  useEffect(() => {
+    if (!useIframeMode) return;
     const handleWindowMessage = (event: MessageEvent) => {
       if (typeof event.data !== 'string') return;
       try {
@@ -173,7 +280,6 @@ export const MusicPlayerBar: React.FC<Props> = ({
           if (typeof data.info.duration === 'number' && data.info.duration > 0) {
             setDuration(Math.floor(data.info.duration));
           }
-          // PlayerState: 0 is Ended, 1 is Playing, 2 is Paused, 3 is Buffering
           if (data.info.playerState === 3) {
             setIsBuffering(true);
           } else if (data.info.playerState === 1) {
@@ -193,26 +299,11 @@ export const MusicPlayerBar: React.FC<Props> = ({
 
     window.addEventListener('message', handleWindowMessage);
     return () => window.removeEventListener('message', handleWindowMessage);
-  }, [isLooping, onNext, postIframeCommand]);
+  }, [useIframeMode, isLooping, onNext, postIframeCommand]);
 
-  // 4. Smooth playback timer tick when playing
+  // 5. Listen for native Android Foreground Service events (Notification buttons, native auto-next, progress)
   useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setCurrentTime((prev) => {
-        if (duration > 0 && prev >= duration) {
-          if (isLooping) return 0;
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isPlaying, duration, isLooping]);
-
-  // 5. Listen for media action events from Android System Notification (Play, Pause, Next, Prev)
-  useEffect(() => {
-    const unsubscribe = androidBackgroundAudio.onAction((action) => {
+    const unsubAction = androidBackgroundAudio.onAction((action) => {
       if (action === 'play') {
         if (!isPlaying) onPlayPause();
       } else if (action === 'pause') {
@@ -223,15 +314,86 @@ export const MusicPlayerBar: React.FC<Props> = ({
         if (onPrev) onPrev();
       }
     });
-    return () => unsubscribe();
-  }, [isPlaying, onPlayPause, onNext, onPrev]);
+
+    const unsubTrack = androidBackgroundAudio.onTrackChanged((data) => {
+      if (onSelectTrack && playlist.length > 0) {
+        const matched = playlist.find((t) => t.id === data.trackId) || playlist[data.index];
+        if (matched) {
+          onSelectTrack(matched);
+        }
+      }
+    });
+
+    const unsubProgress = androidBackgroundAudio.onProgress((data) => {
+      if (nativePlaybackActive) {
+        setCurrentTime(data.currentTime);
+        if (data.duration > 1) setDuration(data.duration);
+        setIsBuffering(false);
+      }
+    });
+
+    const unsubState = androidBackgroundAudio.onPlaybackState((data) => {
+      setNativePlaybackActive(data.nativePlayback && !useIframeMode);
+      if (data.isPlaying !== isPlaying) {
+        onPlayPause();
+      }
+    });
+
+    return () => {
+      unsubAction();
+      unsubTrack();
+      unsubProgress();
+      unsubState();
+    };
+  }, [isPlaying, nativePlaybackActive, useIframeMode, playlist, onPlayPause, onNext, onPrev, onSelectTrack]);
+
+  // Synchronous HTML5 <audio> onEnded auto-advance handler (preserves background playback permissions on Chrome/Android)
+  const handleAudioEnded = () => {
+    if (isLooping) {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {});
+      }
+      return;
+    }
+
+    // Determine next track synchronously so we can load & play on the SAME <audio> element immediately
+    if (playlist.length > 0 && track) {
+      const idx = playlist.findIndex((t) => t.id === track.id);
+      const nextTrack = idx !== -1 ? playlist[(idx + 1) % playlist.length] : playlist[0];
+      const nextStream = getStreamUrlForTrack(nextTrack);
+      if (audioRef.current && nextStream) {
+        lastLoadedStreamRef.current = nextStream;
+        audioRef.current.src = nextStream;
+        audioRef.current.load();
+        audioRef.current.play().catch((err) => {
+          console.warn('Background auto-next play fallback:', err?.message);
+        });
+      }
+      backgroundKeepAlive.enableMusicSession(
+        nextTrack.title,
+        nextTrack.artist,
+        nextTrack.albumArt || nextTrack.thumbnail
+      );
+      if (onSelectTrack) {
+        onSelectTrack(nextTrack);
+        return;
+      }
+    }
+
+    if (onNext) {
+      onNext();
+    }
+  };
 
   // Seek helper
   const handleSeekToSeconds = (targetSec: number) => {
     const clamped = Math.max(0, Math.min(duration, targetSec));
     setCurrentTime(clamped);
-    if (isYouTube) {
+    if (useIframeMode) {
       postIframeCommand('seekTo', [clamped, true]);
+    } else if (nativePlaybackActive) {
+      androidBackgroundAudio.seekTo(clamped);
     } else if (audioRef.current) {
       audioRef.current.currentTime = clamped;
     }
@@ -248,7 +410,7 @@ export const MusicPlayerBar: React.FC<Props> = ({
   const handleToggleMute = () => {
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
-    if (isYouTube) {
+    if (useIframeMode) {
       postIframeCommand(nextMuted ? 'mute' : 'unMute');
     } else if (audioRef.current) {
       audioRef.current.muted = nextMuted;
@@ -256,10 +418,14 @@ export const MusicPlayerBar: React.FC<Props> = ({
   };
 
   const handleClose = () => {
-    if (isYouTube) {
+    if (useIframeMode) {
       postIframeCommand('pauseVideo');
-    } else if (audioRef.current) {
+    }
+    if (audioRef.current) {
       audioRef.current.pause();
+      audioRef.current.removeAttribute('src');
+      audioRef.current.load();
+      lastLoadedStreamRef.current = '';
     }
     backgroundKeepAlive.disableMusicSession();
     androidBackgroundAudio.stopForeground();
@@ -275,63 +441,65 @@ export const MusicPlayerBar: React.FC<Props> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
   return (
     <>
       {/* 
-        Authentic Media Engine:
-        For YouTube tracks, renders genuine YouTube iframe player so EVERY song plays its own authentic audio/video!
-        For non-YouTube audio, uses native HTML5 audio.
+        Persistent Native HTML5 Audio Engine:
+        Never uses a YouTube iframe for background audio, so playback & auto-next keep running
+        even when the user exits/minimizes the app or locks the phone screen!
       */}
-      {isYouTube && youtubeVideoId ? (
+      <audio
+        ref={audioRef}
+        preload="auto"
+        playsInline
+        muted={isMuted || useIframeMode || nativePlaybackActive}
+        onTimeUpdate={(e) => {
+          if (!useIframeMode && !nativePlaybackActive) {
+            setCurrentTime(Math.floor(e.currentTarget.currentTime));
+            setIsBuffering(false);
+          }
+        }}
+        onWaiting={() => {
+          if (!useIframeMode && !nativePlaybackActive) setIsBuffering(true);
+        }}
+        onCanPlay={() => {
+          setIsBuffering(false);
+          setAudioError(null);
+        }}
+        onPlaying={() => {
+          setIsBuffering(false);
+          setAudioError(null);
+          if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+          }
+        }}
+        onLoadedMetadata={(e) => {
+          setIsBuffering(false);
+          const metaDuration = e.currentTarget.duration;
+          if (metaDuration && !isNaN(metaDuration) && metaDuration > 1 && isFinite(metaDuration)) {
+            setDuration(Math.floor(metaDuration));
+          }
+        }}
+        onEnded={handleAudioEnded}
+        onError={() => {
+          if (!useIframeMode && !nativePlaybackActive && activeStreamUrl) {
+            setAudioError('অডিও স্ট্রিম লোড হতে সমস্যা হয়েছে — পরবর্তী গানে যাচ্ছে...');
+            setIsBuffering(false);
+          }
+        }}
+      />
+
+      {/* Optional Video Watch Mode Iframe (mounted ONLY when user explicitly opens Video Watch inside Expanded Player) */}
+      {useIframeMode && (
         <iframe
           ref={iframeRef}
-          key={`yt-${youtubeVideoId}`}
-          src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?enablejsapi=1&autoplay=1&playsinline=1&controls=0&origin=${typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : ''}`}
+          key={`yt-video-${youtubeVideoId}`}
+          src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?enablejsapi=1&autoplay=1&playsinline=1&controls=0&start=${Math.floor(currentTimeRef.current)}&origin=${typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : ''}`}
           title={track.title}
           allow="autoplay; encrypted-media; picture-in-picture"
-          className={
-            isExpanded && showVideo
-              ? "fixed inset-x-4 top-16 max-w-lg mx-auto aspect-video z-55 rounded-2xl shadow-2xl border border-slate-700 bg-black"
-              : "fixed -bottom-96 -right-96 w-1 h-1 opacity-0 pointer-events-none"
-          }
-        />
-      ) : (
-        <audio
-          ref={audioRef}
-          src={track.url}
-          preload="auto"
-          playsInline
-          loop={isLooping}
-          muted={isMuted}
-          onTimeUpdate={(e) => {
-            setCurrentTime(e.currentTarget.currentTime);
-            setIsBuffering(false);
-          }}
-          onWaiting={() => setIsBuffering(true)}
-          onPlaying={() => setIsBuffering(false)}
-          onLoadedMetadata={(e) => {
-            setIsBuffering(false);
-            const metaDuration = e.currentTarget.duration;
-            if (metaDuration && !isNaN(metaDuration) && metaDuration > 1) {
-              setDuration(Math.floor(metaDuration));
-            }
-          }}
-          onEnded={() => {
-            if (isLooping) {
-              if (audioRef.current) {
-                audioRef.current.currentTime = 0;
-                audioRef.current.play().catch(() => {});
-              }
-            } else if (onNext) {
-              onNext();
-            }
-          }}
-          onError={() => {
-            setAudioError('অডিও স্ট্রিম লোড হতে সমস্যা হয়েছে');
-            setIsBuffering(false);
-          }}
+          className="fixed inset-x-4 top-16 max-w-lg mx-auto aspect-video z-55 rounded-2xl shadow-2xl border border-slate-700 bg-black"
         />
       )}
 
@@ -344,7 +512,7 @@ export const MusicPlayerBar: React.FC<Props> = ({
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs font-semibold text-emerald-400 tracking-wider uppercase flex items-center gap-1.5">
                 <Radio className="w-3.5 h-3.5 animate-spin" />
-                অরিজিনাল লাইভ প্লেয়ার
+                ব্যাকগ্রাউন্ড লাইভ প্লেয়ার
               </span>
             </div>
             
@@ -360,12 +528,15 @@ export const MusicPlayerBar: React.FC<Props> = ({
                   title="ভিডিও ও অ্যালবামের মধ্যে পরিবর্তন"
                 >
                   <Tv className="w-3.5 h-3.5" />
-                  <span>{showVideo ? 'অ্যালবাম ভিউ' : 'ভিডিও দেখুন'}</span>
+                  <span>{showVideo ? 'ব্যাকগ্রাউন্ড অডিও' : 'ভিডিও দেখুন'}</span>
                 </button>
               )}
 
               <button
-                onClick={() => setIsExpanded(false)}
+                onClick={() => {
+                  setShowVideo(false);
+                  setIsExpanded(false);
+                }}
                 className="p-2 text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 rounded-full transition"
               >
                 <Minimize2 className="w-5 h-5" />
@@ -378,8 +549,13 @@ export const MusicPlayerBar: React.FC<Props> = ({
             <div className="flex flex-col items-center justify-center max-w-sm mx-auto w-full my-auto text-center">
               <div className="relative group w-64 h-64 sm:w-76 sm:h-76 rounded-2xl overflow-hidden shadow-2xl shadow-rose-950/60 border border-slate-700/60 mb-5">
                 <img
-                  src={track.albumArt || track.thumbnail}
+                  src={track.albumArt || track.thumbnail || musicFallbackArt}
                   alt={track.title}
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const img = e.currentTarget as HTMLImageElement;
+                    if (img.src !== musicFallbackArt) img.src = musicFallbackArt;
+                  }}
                   className={`w-full h-full object-cover transition duration-700 ${isPlaying ? 'scale-105' : 'scale-100 opacity-90'}`}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-transparent" />
@@ -388,14 +564,14 @@ export const MusicPlayerBar: React.FC<Props> = ({
                 <div className="absolute bottom-3 right-3 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700/70 flex items-center gap-2">
                   <Disc3 className={`w-4 h-4 text-rose-400 ${isPlaying ? 'animate-spin' : ''}`} />
                   <span className="text-xs font-medium text-slate-200">
-                    {track.type === 'album' ? 'ফুল অ্যালবাম' : 'আসল ট্র্যাক'}
+                    {track.type === 'album' ? 'ফুল অ্যালবাম' : 'অটো প্লে সক্রিয়'}
                   </span>
                 </div>
 
                 {/* Instant Play Indicator */}
                 <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-md px-2.5 py-1 rounded-full border border-emerald-500/50 flex items-center gap-1.5 text-[11px] text-emerald-300">
                   <Zap className="w-3 h-3 text-emerald-400 fill-emerald-400" />
-                  <span>সরাসরি সাউন্ড</span>
+                  <span>{isBuffering ? 'অডিও লোড হচ্ছে...' : 'নেটিভ MP3 স্ট্রিম'}</span>
                 </div>
               </div>
 
@@ -406,10 +582,10 @@ export const MusicPlayerBar: React.FC<Props> = ({
                 {track.artist}
               </p>
 
-              {/* Reassuring Android Foreground Service Active Banner */}
+              {/* Reassuring Background Auto-Play Active Banner */}
               <div className="inline-flex items-center gap-2 mt-3 px-3.5 py-1.5 rounded-full bg-emerald-950/70 border border-emerald-600/60 text-xs text-emerald-300 font-medium shadow-md shadow-emerald-950/40">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>🛡️ ব্যাকগ্রাউন্ড সার্ভিস সক্রিয় • অ্যাপ থেকে বের হলেও গান চলবে</span>
+                <span>🛡️ ব্যাকগ্রাউন্ড অটো প্লে সক্রিয় • অ্যাপ থেকে বের হলেও গান চলবে</span>
               </div>
 
               {audioError && (
@@ -449,7 +625,7 @@ export const MusicPlayerBar: React.FC<Props> = ({
               <div className="flex justify-between text-[11px] text-slate-400 font-mono">
                 <span>{formatSeconds(currentTime)}</span>
                 <span className="flex items-center gap-1">
-                  {isBuffering && <span className="text-amber-400 animate-pulse text-[10px]">বাফারিং...</span>}
+                  {isBuffering && <span className="text-amber-400 animate-pulse text-[10px]">অডিও প্রস্তুত হচ্ছে...</span>}
                   <span>{track.duration || formatSeconds(duration)}</span>
                 </span>
               </div>
@@ -548,8 +724,13 @@ export const MusicPlayerBar: React.FC<Props> = ({
           >
             <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-lg overflow-hidden shrink-0 border border-slate-700/80 shadow-md">
               <img
-                src={track.albumArt || track.thumbnail}
+                src={track.albumArt || track.thumbnail || musicFallbackArt}
                 alt={track.title}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const img = e.currentTarget as HTMLImageElement;
+                  if (img.src !== musicFallbackArt) img.src = musicFallbackArt;
+                }}
                 className="w-full h-full object-cover group-hover:scale-105 transition"
               />
               <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition" />
@@ -571,14 +752,14 @@ export const MusicPlayerBar: React.FC<Props> = ({
                 </h4>
                 <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.2 text-[9px] font-medium bg-emerald-500/20 text-emerald-400 rounded">
                   <ShieldCheck className="w-2.5 h-2.5" />
-                  অরিজিনাল গান
+                  ব্যাকগ্রাউন্ড অটো প্লে
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate flex items-center gap-1.5">
                 <span>{track.artist}</span>
                 <span>•</span>
                 <span className="font-mono text-slate-300">{formatSeconds(currentTime)} / {track.duration}</span>
-                {isBuffering && <span className="text-amber-400 text-[10px]">বাফারিং...</span>}
+                {isBuffering && <span className="text-amber-400 text-[10px]">প্রস্তুত হচ্ছে...</span>}
               </p>
             </div>
           </div>

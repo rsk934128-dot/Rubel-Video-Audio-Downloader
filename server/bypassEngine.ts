@@ -1,7 +1,13 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import dns from 'dns';
+import https from 'https';
 import type { Request, Response } from 'express';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
 
 export interface BypassEngineInfo {
   name: string;
@@ -301,49 +307,326 @@ function runYtDlpUrlExtractor(url: string, isAudio: boolean): Promise<YtDlpExtra
   });
 }
 
-// 3. Cloud Converter Engine (loader.to)
-async function bypassCloudConverter(url: string, format: string): Promise<BypassResult | null> {
-  let targetFormat = 'mp3';
-  const fmt = String(format || 'mp3').toLowerCase();
+// 3. EtaCloud High-Speed YouTube Extractor Engine (MP3 320k & HD MP4)
+const ETACLOUD_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Origin': 'https://y2mate.gs',
+  'Referer': 'https://y2mate.gs/',
+};
 
-  if (fmt.includes('1080')) targetFormat = '1080';
-  else if (fmt.includes('720')) targetFormat = '720';
-  else if (fmt.includes('480')) targetFormat = '480';
-  else if (fmt.includes('360')) targetFormat = '360';
-  else if (fmt.includes('4k')) targetFormat = '4k';
-  else if (fmt.includes('m4a')) targetFormat = 'm4a';
-  else if (fmt.includes('flac')) targetFormat = 'flac';
-  else if (fmt.includes('wav')) targetFormat = 'wav';
-  else if (fmt.includes('mp4') || fmt.includes('video')) targetFormat = '720';
-  else targetFormat = 'mp3';
+let cachedEtaApiKey: { key: string; fetchedAt: number } | null = null;
+let pendingEtaKeyPromise: Promise<string | null> | null = null;
+const etaAudioStreamCache = new Map<string, { downloadUrl: string; title?: string; cachedAt: number }>();
+const pendingAudioResolveMap = new Map<string, Promise<{ downloadUrl: string; title?: string } | null>>();
+
+function extractYouTubeVideoId(input: string): string | null {
+  if (!input) return null;
+  if (/^[a-zA-Z0-9_-]{11}$/.test(input.trim())) return input.trim();
+  const match = input.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|shorts\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+  return match ? match[1] : null;
+}
+
+function httpsGetTextIPv4(targetUrl: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      targetUrl,
+      {
+        family: 4,
+        timeout: timeoutMs,
+        headers: {
+          'User-Agent': ETACLOUD_HEADERS['User-Agent'],
+          'Accept': 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+          'Accept-Encoding': 'identity',
+          'Connection': 'close',
+        },
+      },
+      (res) => {
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 400) {
+          res.resume();
+          reject(new Error(`HTTP ${res.statusCode || 0}`));
+          return;
+        }
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve(body));
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy(new Error('IPv4 HTTPS request timed out'));
+    });
+    req.on('error', reject);
+  });
+}
+
+async function getEtaCloudApiKey(): Promise<string | null> {
+  if (cachedEtaApiKey && Date.now() - cachedEtaApiKey.fetchedAt < 25 * 60 * 1000) {
+    return cachedEtaApiKey.key;
+  }
+
+  if (pendingEtaKeyPromise) {
+    return pendingEtaKeyPromise;
+  }
+
+  pendingEtaKeyPromise = (async () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        let html = '';
+        if (attempt === 0) {
+          try {
+            const resp = await fetch('https://y2mate.gs/', {
+              headers: {
+                'User-Agent': ETACLOUD_HEADERS['User-Agent'],
+                'Accept': 'text/html,application/xhtml+xml',
+              },
+              signal: AbortSignal.timeout(12000),
+            });
+            if (resp.ok) {
+              html = await resp.text();
+            }
+          } catch {
+            // Fallback directly to IPv4 native https on fetch abort/timeout
+            html = await httpsGetTextIPv4('https://y2mate.gs/', 12000);
+          }
+        } else {
+          html = await httpsGetTextIPv4('https://y2mate.gs/', 14000);
+        }
+
+        const match = html.match(/decodeKey\('([^']+)'\)/);
+        if (match) {
+          const apiKey = Buffer.from(match[1].split('').reverse().join(''), 'base64').toString('utf8');
+          cachedEtaApiKey = { key: apiKey, fetchedAt: Date.now() };
+          return apiKey;
+        }
+      } catch (err: any) {
+        if (attempt === 1) {
+          console.info('EtaCloud key refresh bypassed:', err?.message || 'timeout');
+        }
+      }
+    }
+
+    // Use previously cached key if available rather than failing completely
+    return cachedEtaApiKey?.key || null;
+  })();
 
   try {
-    const apiUrl = `https://loader.to/ajax/download.php?format=${targetFormat}&url=${encodeURIComponent(url)}`;
-    const apiResp = await fetch(apiUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://loader.to/',
-      },
-      signal: AbortSignal.timeout(10000),
+    return await pendingEtaKeyPromise;
+  } finally {
+    pendingEtaKeyPromise = null;
+  }
+}
+
+export async function bypassEtaCloud(url: string, format: string): Promise<BypassResult | null> {
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) return null;
+
+  const fmtLower = String(format || 'mp3').toLowerCase();
+  const isAudio = fmtLower.includes('mp3') || fmtLower.includes('audio') || fmtLower.includes('m4a');
+  const etaFormat = isAudio ? 'mp3' : 'mp4';
+
+  try {
+    const apiKey = await getEtaCloudApiKey();
+    if (!apiKey) return null;
+
+    const authResp = await fetch(`https://eta.etacloud.org/api/v1/auth?api_key=${encodeURIComponent(apiKey)}&_=${Date.now()}`, {
+      headers: ETACLOUD_HEADERS,
+      signal: AbortSignal.timeout(14000),
     });
+    if (!authResp.ok) {
+      cachedEtaApiKey = null;
+      return null;
+    }
+    const authData: any = await authResp.json();
+    if (!authData?.key) {
+      cachedEtaApiKey = null;
+      return null;
+    }
 
-    if (!apiResp.ok) return null;
-    const data = await apiResp.json();
+    const initResp = await fetch(`https://eta.etacloud.org/api/v1/init?_=${Date.now()}`, {
+      headers: { ...ETACLOUD_HEADERS, 'Authorization': `Bearer ${authData.key}` },
+      signal: AbortSignal.timeout(14000),
+    });
+    if (!initResp.ok) return null;
+    const initData: any = await initResp.json();
+    if (!initData?.convertURL) return null;
 
-    if (data.success || data.id) {
+    let convResp = await fetch(`${initData.convertURL}&v=${videoId}&f=${etaFormat}&_=${Date.now()}`, {
+      headers: ETACLOUD_HEADERS,
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!convResp.ok) return null;
+    let convData: any = await convResp.json();
+
+    if (convData?.redirect && convData?.redirectURL) {
+      const redirResp = await fetch(`${convData.redirectURL}&_=${Date.now()}`, {
+        headers: ETACLOUD_HEADERS,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!redirResp.ok) return null;
+      convData = await redirResp.json();
+    }
+
+    if (convData?.error > 0 || !convData?.downloadURL) {
+      return null;
+    }
+
+    const finalDownloadUrl = `${convData.downloadURL}&v=${videoId}&f=${etaFormat}&r=y2mate.gs`;
+    const jobId = `eta_${videoId}_${etaFormat}_${Date.now()}`;
+
+    // If conversion is already complete (or no progressURL needed), return direct ready URL
+    if (!convData.progressURL) {
       return {
         success: true,
-        engine: 'Cloud Converter Pro (Loader Engine)',
-        id: data.id,
-        progressUrl: data.progress_url || `https://lto2.affadaffa.com/api/progress?id=${data.id}`,
-        title: data.title || data.info?.title,
-        thumbnail: data.thumbnail_url || data.info?.image,
-        format: data.format,
+        engine: 'EtaCloud High-Speed Extractor',
+        isDirect: true,
+        id: jobId,
+        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent((convData.title || `YouTube_${videoId}`) + '.' + etaFormat)}&isAudio=${isAudio}&stream=true`,
+        directUrl: finalDownloadUrl,
+        title: convData.title || `YouTube_${videoId}`,
+        format: etaFormat,
       };
     }
+
+    // Check immediate progress once (MP3 often finishes within 1-2s!)
+    try {
+      const quickProgResp = await fetch(`${convData.progressURL}&_=${Date.now()}`, {
+        headers: ETACLOUD_HEADERS,
+        signal: AbortSignal.timeout(4000),
+      });
+      if (quickProgResp.ok) {
+        const quickProg: any = await quickProgResp.json();
+        if (quickProg.progress >= 3 && !quickProg.error) {
+          const resolvedTitle = quickProg.title || convData.title || `YouTube_${videoId}`;
+          if (isAudio) {
+            etaAudioStreamCache.set(videoId, {
+              downloadUrl: finalDownloadUrl,
+              title: resolvedTitle,
+              cachedAt: Date.now(),
+            });
+          }
+          return {
+            success: true,
+            engine: 'EtaCloud High-Speed Extractor',
+            isDirect: true,
+            id: jobId,
+            downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(`${resolvedTitle}.${etaFormat}`)}&isAudio=${isAudio}&stream=true`,
+            directUrl: finalDownloadUrl,
+            title: resolvedTitle,
+            format: etaFormat,
+          };
+        }
+      }
+    } catch {}
+
+    // Otherwise return progressUrl + encoded direct download target for client polling
+    const packedProgressUrl = `etacloud::${convData.progressURL}::${finalDownloadUrl}::${encodeURIComponent(convData.title || '')}::${etaFormat}`;
+    return {
+      success: true,
+      engine: 'EtaCloud High-Speed Extractor',
+      isDirect: false,
+      id: jobId,
+      progressUrl: packedProgressUrl,
+      directUrl: finalDownloadUrl,
+      title: convData.title || `YouTube_${videoId}`,
+      format: etaFormat,
+    };
   } catch (err: any) {
-    console.warn('Cloud converter error:', err.message);
+    console.warn('EtaCloud extractor error:', err.message);
+    return null;
   }
+}
+
+export async function checkEtaCloudProgress(packedProgressUrl: string): Promise<{
+  success: boolean;
+  progress: number;
+  downloadUrl: string | null;
+  title?: string;
+  format?: string;
+  error?: string;
+} | null> {
+  if (!packedProgressUrl || !packedProgressUrl.startsWith('etacloud::')) return null;
+  const parts = packedProgressUrl.split('::');
+  const progressUrl = parts[1];
+  const downloadUrl = parts[2];
+  const fallbackTitle = parts[3] ? decodeURIComponent(parts[3]) : undefined;
+  const fmt = parts[4] || 'mp3';
+
+  try {
+    const resp = await fetch(`${progressUrl}&_=${Date.now()}`, {
+      headers: ETACLOUD_HEADERS,
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!resp.ok) {
+      return { success: false, progress: 35, downloadUrl: null };
+    }
+    const data: any = await resp.json();
+    if (data.error > 0) {
+      return { success: false, progress: 0, downloadUrl: null, error: `Conversion error ${data.error}` };
+    }
+    const isDone = Number(data.progress) >= 3;
+    const pct = isDone ? 1000 : Math.min(900, Math.max(200, Number(data.progress || 1) * 300));
+    return {
+      success: isDone,
+      progress: pct,
+      downloadUrl: isDone ? downloadUrl : null,
+      title: data.title || fallbackTitle,
+      format: fmt,
+    };
+  } catch {
+    return { success: false, progress: 400, downloadUrl: null };
+  }
+}
+
+export async function resolveYouTubeAudioStreamUrl(videoIdOrUrl: string): Promise<{ downloadUrl: string; title?: string } | null> {
+  const videoId = extractYouTubeVideoId(videoIdOrUrl);
+  if (!videoId) return null;
+
+  const cached = etaAudioStreamCache.get(videoId);
+  if (cached && Date.now() - cached.cachedAt < 20 * 60 * 1000) {
+    return { downloadUrl: cached.downloadUrl, title: cached.title };
+  }
+
+  const inFlight = pendingAudioResolveMap.get(videoId);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const resolveTask = (async (): Promise<{ downloadUrl: string; title?: string } | null> => {
+    const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const res = await bypassEtaCloud(ytUrl, 'mp3');
+    if (!res) return null;
+
+    if (res.isDirect && res.directUrl) {
+      etaAudioStreamCache.set(videoId, { downloadUrl: res.directUrl, title: res.title, cachedAt: Date.now() });
+      return { downloadUrl: res.directUrl, title: res.title };
+    }
+
+    if (res.progressUrl) {
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const prog = await checkEtaCloudProgress(res.progressUrl);
+        if (prog?.success && prog.downloadUrl) {
+          etaAudioStreamCache.set(videoId, { downloadUrl: prog.downloadUrl, title: prog.title || res.title, cachedAt: Date.now() });
+          return { downloadUrl: prog.downloadUrl, title: prog.title || res.title };
+        }
+        if (prog?.error) break;
+      }
+    }
+
+    return null;
+  })();
+
+  pendingAudioResolveMap.set(videoId, resolveTask);
+  try {
+    return await resolveTask;
+  } finally {
+    pendingAudioResolveMap.delete(videoId);
+  }
+}
+
+async function bypassCloudConverter(url: string, format: string): Promise<BypassResult | null> {
+  const etaRes = await bypassEtaCloud(url, format);
+  if (etaRes) return etaRes;
   return null;
 }
 
@@ -438,7 +721,17 @@ export async function resolveBypassMedia(url: string, format: string): Promise<B
     return tikTokResult;
   }
 
-  // Tier 3: Native High-Speed Extractor (yt-dlp with Node JS runtime)
+  const isYouTubeUrl = /(youtube\.com|youtu\.be)/i.test(url);
+
+  // Tier 3 (For YouTube): EtaCloud High-Speed YouTube Extractor FIRST (~1.5s, genuine HD MP4 & 320k MP3)
+  if (isYouTubeUrl) {
+    const cloudResult = await bypassCloudConverter(url, format);
+    if (cloudResult) {
+      return cloudResult;
+    }
+  }
+
+  // Tier 4: Native High-Speed Extractor (yt-dlp with Node JS runtime)
   try {
     const ytdlpMeta = await runYtDlpUrlExtractor(url, isAudio);
     if (ytdlpMeta && ytdlpMeta.url) {
@@ -466,39 +759,19 @@ export async function resolveBypassMedia(url: string, format: string): Promise<B
     // Native yt-dlp extractor fallback
   }
 
-  // Tier 4: Cloud Converter Engine as fallback
-  const cloudResult = await bypassCloudConverter(url, format);
-  if (cloudResult) {
-    return cloudResult;
+  // Tier 4b (Non-YouTube fallback): EtaCloud High-Speed Extractor Engine
+  if (!isYouTubeUrl) {
+    const cloudResult = await bypassCloudConverter(url, format);
+    if (cloudResult) {
+      return cloudResult;
+    }
   }
 
-  // Tier 5: Resilient High-Speed Media Pipeline
-  const isAudioExt = String(format).toLowerCase().includes('mp3') || 
-                     String(format).toLowerCase().includes('audio') || 
-                     String(format).toLowerCase().includes('m4a');
-  const ext = isAudioExt ? 'mp3' : 'mp4';
-  
-  let derivedTitle = 'media_download';
-  if (url.includes('v=')) {
-    derivedTitle = `YouTube_Media_${url.split('v=')[1].split('&')[0]}`;
-  } else {
-    try {
-      const parsed = new URL(url);
-      derivedTitle = path.basename(parsed.pathname) || 'media_download';
-    } catch {}
-  }
-  const cleanTitle = derivedTitle.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim() || 'media_download';
-  const filename = `${cleanTitle}.${ext}`;
-
+  // Tier 5: Fail honestly with clear error instead of returning a broken redirect
   return {
-    success: true,
-    engine: 'Resilient Media Bypass Stream',
-    isDirect: true,
-    id: 'resilient_' + Date.now(),
-    downloadUrl: `/api/proxy-download?url=resilient&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&isAudio=${isAudioExt}&stream=true`,
-    directUrl: url,
-    title: cleanTitle,
-    format: ext,
+    success: false,
+    engine: 'None',
+    error: 'এই লিঙ্কটি সার্ভার থেকে সরাসরি কনভার্ট করা যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন বা সরাসরি মিরর লিঙ্ক ব্যবহার করুন।',
   };
 }
 
@@ -517,19 +790,15 @@ export function streamResilientMedia(
   const originUrl = (req.query?.originUrl as string) || '';
   const isBBB = isBigBuckBunny(originUrl, title || cleanFilename);
 
-  // If this is a real user video from YouTube/Social (NOT Big Buck Bunny), redirect to authentic download resolver!
+  // Never silently redirect /api/proxy-download to an external HTML page — that breaks <a download> and <audio>
   if (!isBBB && originUrl) {
-    if (originUrl.includes('youtube.com') || originUrl.includes('youtu.be')) {
-      const ytMatch = originUrl.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-      const ytId = ytMatch ? ytMatch[1] : '';
-      if (isAudio) {
-        return res.redirect(302, `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
-      } else {
-        return res.redirect(302, ytId ? `https://www.ssyoutube.com/watch?v=${ytId}` : `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
-      }
-    } else if (originUrl.includes('facebook.com') || originUrl.includes('fb.watch')) {
-      return res.redirect(302, `https://fdown.net/`);
+    if (!res.headersSent) {
+      return res.status(502).json({
+        success: false,
+        error: 'মিডিয়া স্ট্রিম এই মুহূর্তে সার্ভার থেকে পাওয়া যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন।',
+      });
     }
+    return;
   }
 
   if (isAudio) {
@@ -792,14 +1061,18 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     return streamYtDlpMedia(targetUrl, cleanFilename, isAudio, req, res);
   }
 
-  // Determine appropriate referer based on target URL
+  // Determine appropriate referer & origin based on target URL
   let referer = 'https://www.google.com/';
+  let originHeader: string | undefined;
   try {
     const parsed = new URL(targetUrl);
     if (parsed.hostname.includes('tiktok') || parsed.hostname.includes('byteoversea')) {
       referer = 'https://www.tiktok.com/';
     } else if (parsed.hostname.includes('googlevideo') || parsed.hostname.includes('youtube')) {
       referer = 'https://www.youtube.com/';
+    } else if (parsed.hostname.includes('etacloud.org')) {
+      referer = 'https://y2mate.gs/';
+      originHeader = 'https://y2mate.gs';
     } else if (parsed.hostname.includes('loader.to') || parsed.hostname.includes('affadaffa')) {
       referer = 'https://loader.to/';
     } else if (parsed.hostname.includes('wikimedia.org') || parsed.hostname.includes('wikipedia.org')) {
@@ -809,8 +1082,12 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     }
   } catch {}
 
-  // If audio format is requested from a video container (or MP3 requested from stream), transcode directly via FFmpeg
-  if (isAudio && (targetUrl.includes('.mp4') || targetUrl.includes('.webm') || targetUrl.includes('.mov') || cleanFilename.toLowerCase().endsWith('.mp3'))) {
+  // If audio format is requested from a video container (skip native etacloud.org MP3 binaries!), transcode directly via FFmpeg
+  if (
+    isAudio &&
+    !targetUrl.includes('etacloud.org') &&
+    (targetUrl.includes('.mp4') || targetUrl.includes('.webm') || targetUrl.includes('.mov'))
+  ) {
     const asciiSafeFilename = cleanFilename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
     const utf8EncodedFilename = encodeURIComponent(cleanFilename);
     let sentHeaders = false;
@@ -875,10 +1152,13 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
   }
 
   const headers: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Referer': referer,
     'Accept': '*/*',
   };
+  if (originHeader) {
+    headers['Origin'] = originHeader;
+  }
 
   // Forward Range header if requested (essential for media players and resume download)
   if (req.headers.range) {
@@ -903,17 +1183,32 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
   });
 
   try {
-    const upstream = await fetch(targetUrl, {
+    let upstream = await fetch(targetUrl, {
       headers,
       signal: controller.signal,
       redirect: 'follow',
     });
 
+    if (!upstream.ok && upstream.status !== 206 && targetUrl.includes('etacloud.org') && !req.destroyed) {
+      await new Promise((r) => setTimeout(r, 1500));
+      upstream = await fetch(targetUrl, {
+        headers,
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+    }
+
     // Connection and response headers received successfully:
     clearTimeout(connectTimer);
 
     if (!upstream.ok && upstream.status !== 206) {
-      console.warn(`Upstream returned ${upstream.status} for ${targetUrl.slice(0, 80)}, activating resilient fallback...`);
+      console.warn(`Upstream returned ${upstream.status} for ${targetUrl.slice(0, 80)}`);
+      if (originUrl && !isBigBuckBunny(originUrl, cleanFilename)) {
+        return res.status(502).json({
+          success: false,
+          error: 'মিডিয়া ফাইল সার্ভার থেকে আনতে সমস্যা হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।',
+        });
+      }
       if (originUrl) {
         return streamYtDlpMedia(originUrl, cleanFilename, isAudio, req, res);
       }
@@ -941,12 +1236,19 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     res.status(status);
     res.setHeader('Content-Type', contentType);
 
-    // RFC 6266 / RFC 5987 compliant Content-Disposition: ASCII fallback + UTF-8 encoded filename
-    const asciiSafeFilename = cleanFilename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
+    // RFC 6266 / RFC 5987 compliant Content-Disposition: inline for players or attachment for downloads
+    const isInlineStream = req.query?.inline === 'true';
+    const asciiSafeFilename = cleanFilename
+      .replace(/[^\x20-\x7E]/g, '_')
+      .replace(/[;,"\\/|*?<>:]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || (isAudio ? 'audio_download.mp3' : 'video_download.mp4');
     const utf8EncodedFilename = encodeURIComponent(cleanFilename);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${asciiSafeFilename}"; filename*=UTF-8''${utf8EncodedFilename}`
+      isInlineStream
+        ? 'inline'
+        : `attachment; filename="${asciiSafeFilename}"; filename*=UTF-8''${utf8EncodedFilename}`
     );
 
     res.setHeader('Access-Control-Allow-Origin', '*');

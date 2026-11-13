@@ -83,9 +83,16 @@ export const Navbar: React.FC<Props> = ({
           onClick={() => setActiveTab('downloader')}
           className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group select-none shrink-0"
         >
-          <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-rose-500 via-pink-500 to-sky-500 p-0.5 shadow-lg shadow-rose-500/20 group-hover:shadow-rose-500/40 transition">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-              <Download className="w-4 h-4 sm:w-5 sm:h-5 text-rose-400 group-hover:scale-110 transition duration-200" />
+          <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-rose-500 via-pink-500 to-sky-500 p-0.5 shadow-lg shadow-rose-500/20 group-hover:shadow-rose-500/40 transition shrink-0">
+            <div className="w-full h-full bg-slate-950 rounded-[10px] overflow-hidden flex items-center justify-center">
+              <img
+                src="/pwa-192x192.png"
+                alt="Downloader Pro"
+                className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+              />
             </div>
           </div>
           <div>

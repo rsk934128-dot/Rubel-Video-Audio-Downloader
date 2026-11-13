@@ -1,4 +1,5 @@
 import { DownloadTask, MediaFormat, PlatformType } from '../types';
+import defaultVaultThumb from '../assets/images/app_empty_history_vault_1794589327768.jpg';
 
 export interface ExportMetadata {
   version: number;
@@ -259,7 +260,7 @@ export function parseCSVHistory(csvText: string): DownloadTask[] {
       title,
       fileName,
       platform,
-      thumbnail: (thumbIdx !== -1 && cells[thumbIdx]?.trim()) ? cells[thumbIdx].trim() : 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=60',
+      thumbnail: (thumbIdx !== -1 && cells[thumbIdx]?.trim()) ? cells[thumbIdx].trim() : defaultVaultThumb,
       format: formatObj,
       progress: status === 'completed' ? 100 : 0,
       speed: '0 KB/s',
@@ -345,7 +346,7 @@ export function parseJSONHistory(jsonText: string): DownloadTask[] {
       title: String(title),
       fileName: String(fileName),
       platform: normalizePlatform(item.platform),
-      thumbnail: item.thumbnail || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=60',
+      thumbnail: item.thumbnail || defaultVaultThumb,
       format,
       progress: typeof item.progress === 'number' ? item.progress : (status === 'completed' ? 100 : 0),
       speed: item.speed || '0 KB/s',

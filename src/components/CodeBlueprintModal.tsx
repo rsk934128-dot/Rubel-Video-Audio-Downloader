@@ -13,6 +13,7 @@ import {
   Terminal, 
   FileText 
 } from 'lucide-react';
+import architectureDiagramImg from '../assets/images/readme_architecture_diagram_1794589129255.jpg';
 
 interface Props {
   language: Language;
@@ -249,15 +250,27 @@ if __name__ == "__main__":
 
   return (
     <div className="w-full max-w-4xl mx-auto py-4">
-      {/* Title */}
-      <div className="mb-6">
-        <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
-          <Code className="w-6 h-6 text-rose-500" />
-          <span>{t.blueprintTitle}</span>
-        </h2>
-        <p className="text-xs sm:text-sm text-slate-400 mt-1">
-          {t.blueprintDesc}
-        </p>
+      {/* Title & Architecture Diagram Banner */}
+      <div className="mb-6 grid grid-cols-1 lg:grid-cols-12 gap-5 items-center rounded-3xl bg-slate-900/70 border border-slate-800 p-5">
+        <div className="lg:col-span-7">
+          <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
+            <Code className="w-6 h-6 text-rose-500" />
+            <span>{t.blueprintTitle}</span>
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-2 leading-relaxed">
+            {t.blueprintDesc}
+          </p>
+        </div>
+        <div className="lg:col-span-5">
+          <div className="aspect-[16/9] w-full rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 shadow-xl">
+            <img
+              src={architectureDiagramImg}
+              alt={language === 'bn' ? 'সিস্টেম আর্কিটেকচার ডায়াগ্রাম' : 'System Extraction Architecture Diagram'}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}

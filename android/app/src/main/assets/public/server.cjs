@@ -31,6 +31,12 @@ var import_vite = require("vite");
 var import_child_process = require("child_process");
 var import_path = __toESM(require("path"), 1);
 var import_fs = __toESM(require("fs"), 1);
+var import_dns = __toESM(require("dns"), 1);
+var import_https = __toESM(require("https"), 1);
+try {
+  import_dns.default.setDefaultResultOrder("ipv4first");
+} catch {
+}
 function getBypassEngines() {
   return [
     {
@@ -263,44 +269,284 @@ function runYtDlpUrlExtractor(url, isAudio) {
     });
   });
 }
-async function bypassCloudConverter(url, format) {
-  let targetFormat = "mp3";
-  const fmt = String(format || "mp3").toLowerCase();
-  if (fmt.includes("1080")) targetFormat = "1080";
-  else if (fmt.includes("720")) targetFormat = "720";
-  else if (fmt.includes("480")) targetFormat = "480";
-  else if (fmt.includes("360")) targetFormat = "360";
-  else if (fmt.includes("4k")) targetFormat = "4k";
-  else if (fmt.includes("m4a")) targetFormat = "m4a";
-  else if (fmt.includes("flac")) targetFormat = "flac";
-  else if (fmt.includes("wav")) targetFormat = "wav";
-  else if (fmt.includes("mp4") || fmt.includes("video")) targetFormat = "720";
-  else targetFormat = "mp3";
-  try {
-    const apiUrl = `https://loader.to/ajax/download.php?format=${targetFormat}&url=${encodeURIComponent(url)}`;
-    const apiResp = await fetch(apiUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://loader.to/"
+var ETACLOUD_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Origin": "https://y2mate.gs",
+  "Referer": "https://y2mate.gs/"
+};
+var cachedEtaApiKey = null;
+var pendingEtaKeyPromise = null;
+var etaAudioStreamCache = /* @__PURE__ */ new Map();
+var pendingAudioResolveMap = /* @__PURE__ */ new Map();
+function extractYouTubeVideoId(input) {
+  if (!input) return null;
+  if (/^[a-zA-Z0-9_-]{11}$/.test(input.trim())) return input.trim();
+  const match = input.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|shorts\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+  return match ? match[1] : null;
+}
+function httpsGetTextIPv4(targetUrl, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const req = import_https.default.get(
+      targetUrl,
+      {
+        family: 4,
+        timeout: timeoutMs,
+        headers: {
+          "User-Agent": ETACLOUD_HEADERS["User-Agent"],
+          "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+          "Accept-Encoding": "identity",
+          "Connection": "close"
+        }
       },
-      signal: AbortSignal.timeout(1e4)
+      (res) => {
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 400) {
+          res.resume();
+          reject(new Error(`HTTP ${res.statusCode || 0}`));
+          return;
+        }
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => resolve(body));
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy(new Error("IPv4 HTTPS request timed out"));
     });
-    if (!apiResp.ok) return null;
-    const data = await apiResp.json();
-    if (data.success || data.id) {
+    req.on("error", reject);
+  });
+}
+async function getEtaCloudApiKey() {
+  if (cachedEtaApiKey && Date.now() - cachedEtaApiKey.fetchedAt < 25 * 60 * 1e3) {
+    return cachedEtaApiKey.key;
+  }
+  if (pendingEtaKeyPromise) {
+    return pendingEtaKeyPromise;
+  }
+  pendingEtaKeyPromise = (async () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        let html = "";
+        if (attempt === 0) {
+          try {
+            const resp = await fetch("https://y2mate.gs/", {
+              headers: {
+                "User-Agent": ETACLOUD_HEADERS["User-Agent"],
+                "Accept": "text/html,application/xhtml+xml"
+              },
+              signal: AbortSignal.timeout(12e3)
+            });
+            if (resp.ok) {
+              html = await resp.text();
+            }
+          } catch {
+            html = await httpsGetTextIPv4("https://y2mate.gs/", 12e3);
+          }
+        } else {
+          html = await httpsGetTextIPv4("https://y2mate.gs/", 14e3);
+        }
+        const match = html.match(/decodeKey\('([^']+)'\)/);
+        if (match) {
+          const apiKey = Buffer.from(match[1].split("").reverse().join(""), "base64").toString("utf8");
+          cachedEtaApiKey = { key: apiKey, fetchedAt: Date.now() };
+          return apiKey;
+        }
+      } catch (err) {
+        if (attempt === 1) {
+          console.info("EtaCloud key refresh bypassed:", err?.message || "timeout");
+        }
+      }
+    }
+    return cachedEtaApiKey?.key || null;
+  })();
+  try {
+    return await pendingEtaKeyPromise;
+  } finally {
+    pendingEtaKeyPromise = null;
+  }
+}
+async function bypassEtaCloud(url, format) {
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) return null;
+  const fmtLower = String(format || "mp3").toLowerCase();
+  const isAudio = fmtLower.includes("mp3") || fmtLower.includes("audio") || fmtLower.includes("m4a");
+  const etaFormat = isAudio ? "mp3" : "mp4";
+  try {
+    const apiKey = await getEtaCloudApiKey();
+    if (!apiKey) return null;
+    const authResp = await fetch(`https://eta.etacloud.org/api/v1/auth?api_key=${encodeURIComponent(apiKey)}&_=${Date.now()}`, {
+      headers: ETACLOUD_HEADERS,
+      signal: AbortSignal.timeout(14e3)
+    });
+    if (!authResp.ok) {
+      cachedEtaApiKey = null;
+      return null;
+    }
+    const authData = await authResp.json();
+    if (!authData?.key) {
+      cachedEtaApiKey = null;
+      return null;
+    }
+    const initResp = await fetch(`https://eta.etacloud.org/api/v1/init?_=${Date.now()}`, {
+      headers: { ...ETACLOUD_HEADERS, "Authorization": `Bearer ${authData.key}` },
+      signal: AbortSignal.timeout(14e3)
+    });
+    if (!initResp.ok) return null;
+    const initData = await initResp.json();
+    if (!initData?.convertURL) return null;
+    let convResp = await fetch(`${initData.convertURL}&v=${videoId}&f=${etaFormat}&_=${Date.now()}`, {
+      headers: ETACLOUD_HEADERS,
+      signal: AbortSignal.timeout(15e3)
+    });
+    if (!convResp.ok) return null;
+    let convData = await convResp.json();
+    if (convData?.redirect && convData?.redirectURL) {
+      const redirResp = await fetch(`${convData.redirectURL}&_=${Date.now()}`, {
+        headers: ETACLOUD_HEADERS,
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!redirResp.ok) return null;
+      convData = await redirResp.json();
+    }
+    if (convData?.error > 0 || !convData?.downloadURL) {
+      return null;
+    }
+    const finalDownloadUrl = `${convData.downloadURL}&v=${videoId}&f=${etaFormat}&r=y2mate.gs`;
+    const jobId = `eta_${videoId}_${etaFormat}_${Date.now()}`;
+    if (!convData.progressURL) {
       return {
         success: true,
-        engine: "Cloud Converter Pro (Loader Engine)",
-        id: data.id,
-        progressUrl: data.progress_url || `https://lto2.affadaffa.com/api/progress?id=${data.id}`,
-        title: data.title || data.info?.title,
-        thumbnail: data.thumbnail_url || data.info?.image,
-        format: data.format
+        engine: "EtaCloud High-Speed Extractor",
+        isDirect: true,
+        id: jobId,
+        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent((convData.title || `YouTube_${videoId}`) + "." + etaFormat)}&isAudio=${isAudio}&stream=true`,
+        directUrl: finalDownloadUrl,
+        title: convData.title || `YouTube_${videoId}`,
+        format: etaFormat
       };
     }
+    try {
+      const quickProgResp = await fetch(`${convData.progressURL}&_=${Date.now()}`, {
+        headers: ETACLOUD_HEADERS,
+        signal: AbortSignal.timeout(4e3)
+      });
+      if (quickProgResp.ok) {
+        const quickProg = await quickProgResp.json();
+        if (quickProg.progress >= 3 && !quickProg.error) {
+          const resolvedTitle = quickProg.title || convData.title || `YouTube_${videoId}`;
+          if (isAudio) {
+            etaAudioStreamCache.set(videoId, {
+              downloadUrl: finalDownloadUrl,
+              title: resolvedTitle,
+              cachedAt: Date.now()
+            });
+          }
+          return {
+            success: true,
+            engine: "EtaCloud High-Speed Extractor",
+            isDirect: true,
+            id: jobId,
+            downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(`${resolvedTitle}.${etaFormat}`)}&isAudio=${isAudio}&stream=true`,
+            directUrl: finalDownloadUrl,
+            title: resolvedTitle,
+            format: etaFormat
+          };
+        }
+      }
+    } catch {
+    }
+    const packedProgressUrl = `etacloud::${convData.progressURL}::${finalDownloadUrl}::${encodeURIComponent(convData.title || "")}::${etaFormat}`;
+    return {
+      success: true,
+      engine: "EtaCloud High-Speed Extractor",
+      isDirect: false,
+      id: jobId,
+      progressUrl: packedProgressUrl,
+      directUrl: finalDownloadUrl,
+      title: convData.title || `YouTube_${videoId}`,
+      format: etaFormat
+    };
   } catch (err) {
-    console.warn("Cloud converter error:", err.message);
+    console.warn("EtaCloud extractor error:", err.message);
+    return null;
   }
+}
+async function checkEtaCloudProgress(packedProgressUrl) {
+  if (!packedProgressUrl || !packedProgressUrl.startsWith("etacloud::")) return null;
+  const parts = packedProgressUrl.split("::");
+  const progressUrl = parts[1];
+  const downloadUrl = parts[2];
+  const fallbackTitle = parts[3] ? decodeURIComponent(parts[3]) : void 0;
+  const fmt = parts[4] || "mp3";
+  try {
+    const resp = await fetch(`${progressUrl}&_=${Date.now()}`, {
+      headers: ETACLOUD_HEADERS,
+      signal: AbortSignal.timeout(7e3)
+    });
+    if (!resp.ok) {
+      return { success: false, progress: 35, downloadUrl: null };
+    }
+    const data = await resp.json();
+    if (data.error > 0) {
+      return { success: false, progress: 0, downloadUrl: null, error: `Conversion error ${data.error}` };
+    }
+    const isDone = Number(data.progress) >= 3;
+    const pct = isDone ? 1e3 : Math.min(900, Math.max(200, Number(data.progress || 1) * 300));
+    return {
+      success: isDone,
+      progress: pct,
+      downloadUrl: isDone ? downloadUrl : null,
+      title: data.title || fallbackTitle,
+      format: fmt
+    };
+  } catch {
+    return { success: false, progress: 400, downloadUrl: null };
+  }
+}
+async function resolveYouTubeAudioStreamUrl(videoIdOrUrl) {
+  const videoId = extractYouTubeVideoId(videoIdOrUrl);
+  if (!videoId) return null;
+  const cached = etaAudioStreamCache.get(videoId);
+  if (cached && Date.now() - cached.cachedAt < 20 * 60 * 1e3) {
+    return { downloadUrl: cached.downloadUrl, title: cached.title };
+  }
+  const inFlight = pendingAudioResolveMap.get(videoId);
+  if (inFlight) {
+    return inFlight;
+  }
+  const resolveTask = (async () => {
+    const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const res = await bypassEtaCloud(ytUrl, "mp3");
+    if (!res) return null;
+    if (res.isDirect && res.directUrl) {
+      etaAudioStreamCache.set(videoId, { downloadUrl: res.directUrl, title: res.title, cachedAt: Date.now() });
+      return { downloadUrl: res.directUrl, title: res.title };
+    }
+    if (res.progressUrl) {
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const prog = await checkEtaCloudProgress(res.progressUrl);
+        if (prog?.success && prog.downloadUrl) {
+          etaAudioStreamCache.set(videoId, { downloadUrl: prog.downloadUrl, title: prog.title || res.title, cachedAt: Date.now() });
+          return { downloadUrl: prog.downloadUrl, title: prog.title || res.title };
+        }
+        if (prog?.error) break;
+      }
+    }
+    return null;
+  })();
+  pendingAudioResolveMap.set(videoId, resolveTask);
+  try {
+    return await resolveTask;
+  } finally {
+    pendingAudioResolveMap.delete(videoId);
+  }
+}
+async function bypassCloudConverter(url, format) {
+  const etaRes = await bypassEtaCloud(url, format);
+  if (etaRes) return etaRes;
   return null;
 }
 function isBigBuckBunny(url, title) {
@@ -317,26 +563,26 @@ async function resolveBypassMedia(url, format) {
   const fmt = String(format || "720").toLowerCase();
   if (isBigBuckBunny(url)) {
     let targetStream = "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
-    let ext2 = "mp4";
-    let filename2 = "Big_Buck_Bunny_720p_HD.mp4";
+    let ext = "mp4";
+    let filename = "Big_Buck_Bunny_720p_HD.mp4";
     if (fmt.includes("4k") || fmt.includes("2160")) {
       targetStream = "https://upload.wikimedia.org/wikipedia/commons/c/c0/Big_Buck_Bunny_4K.webm";
-      ext2 = "webm";
-      filename2 = "Big_Buck_Bunny_60fps_4K_Official_Blender.webm";
+      ext = "webm";
+      filename = "Big_Buck_Bunny_60fps_4K_Official_Blender.webm";
     } else if (fmt.includes("1080")) {
       targetStream = "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm";
-      ext2 = "webm";
-      filename2 = "Big_Buck_Bunny_1080p_60fps.webm";
+      ext = "webm";
+      filename = "Big_Buck_Bunny_1080p_60fps.webm";
     } else if (fmt.includes("480")) {
       targetStream = "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.480p.vp9.webm";
-      ext2 = "webm";
-      filename2 = "Big_Buck_Bunny_480p.webm";
+      ext = "webm";
+      filename = "Big_Buck_Bunny_480p.webm";
     } else if (isAudio) {
       targetStream = "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
-      ext2 = "mp3";
-      filename2 = "Big_Buck_Bunny_Soundtrack_320k.mp3";
+      ext = "mp3";
+      filename = "Big_Buck_Bunny_Soundtrack_320k.mp3";
     }
-    const downloadUrl = `/api/proxy-download?url=${encodeURIComponent(targetStream)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename2)}&isAudio=${isAudio}&stream=true`;
+    const downloadUrl = `/api/proxy-download?url=${encodeURIComponent(targetStream)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&isAudio=${isAudio}&stream=true`;
     return {
       success: true,
       engine: fmt.includes("4k") ? "Official 4K 60fps Direct Stream" : "High-Speed Stream Proxy",
@@ -346,22 +592,22 @@ async function resolveBypassMedia(url, format) {
       directUrl: targetStream,
       title: "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film",
       thumbnail: "https://i.ytimg.com/vi/aqz-KE-bpKQ/maxresdefault.jpg",
-      format: ext2
+      format: ext
     };
   }
   const isDirect = /\.(mp4|mp3|m4a|webm|wav|ogg|mov|flac|aac)(\?.*)?$/i.test(url);
   if (isDirect) {
     try {
       const parsed = new URL(url);
-      const filename2 = import_path.default.basename(parsed.pathname) || "media_file";
+      const filename = import_path.default.basename(parsed.pathname) || "media_file";
       return {
         success: true,
         engine: "Direct Media Proxy Bypass",
         isDirect: true,
         id: "direct_" + Date.now(),
-        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename2)}&stream=true`,
+        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&stream=true`,
         directUrl: url,
-        title: filename2,
+        title: filename,
         format: format || "mp4"
       };
     } catch {
@@ -371,53 +617,43 @@ async function resolveBypassMedia(url, format) {
   if (tikTokResult) {
     return tikTokResult;
   }
+  const isYouTubeUrl = /(youtube\.com|youtu\.be)/i.test(url);
+  if (isYouTubeUrl) {
+    const cloudResult = await bypassCloudConverter(url, format);
+    if (cloudResult) {
+      return cloudResult;
+    }
+  }
   try {
     const ytdlpMeta = await runYtDlpUrlExtractor(url, isAudio);
     if (ytdlpMeta && ytdlpMeta.url) {
-      const ext2 = isAudio ? ytdlpMeta.ext === "m4a" ? "m4a" : "mp3" : ytdlpMeta.ext || "mp4";
-      const cleanTitle2 = (ytdlpMeta.title || "media_download").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "media_download";
-      const filename2 = `${cleanTitle2}.${ext2}`;
+      const ext = isAudio ? ytdlpMeta.ext === "m4a" ? "m4a" : "mp3" : ytdlpMeta.ext || "mp4";
+      const cleanTitle = (ytdlpMeta.title || "media_download").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "media_download";
+      const filename = `${cleanTitle}.${ext}`;
       return {
         success: true,
         engine: "Native High-Speed Stream Bypass (yt-dlp)",
         isDirect: true,
         id: "ytdlp_" + Date.now(),
-        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(ytdlpMeta.url)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename2)}&isAudio=${isAudio}&stream=true`,
+        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(ytdlpMeta.url)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&isAudio=${isAudio}&stream=true`,
         directUrl: ytdlpMeta.url,
-        title: ytdlpMeta.title || cleanTitle2,
+        title: ytdlpMeta.title || cleanTitle,
         thumbnail: ytdlpMeta.thumbnail,
-        format: ext2
+        format: ext
       };
     }
   } catch {
   }
-  const cloudResult = await bypassCloudConverter(url, format);
-  if (cloudResult) {
-    return cloudResult;
-  }
-  const isAudioExt = String(format).toLowerCase().includes("mp3") || String(format).toLowerCase().includes("audio") || String(format).toLowerCase().includes("m4a");
-  const ext = isAudioExt ? "mp3" : "mp4";
-  let derivedTitle = "media_download";
-  if (url.includes("v=")) {
-    derivedTitle = `YouTube_Media_${url.split("v=")[1].split("&")[0]}`;
-  } else {
-    try {
-      const parsed = new URL(url);
-      derivedTitle = import_path.default.basename(parsed.pathname) || "media_download";
-    } catch {
+  if (!isYouTubeUrl) {
+    const cloudResult = await bypassCloudConverter(url, format);
+    if (cloudResult) {
+      return cloudResult;
     }
   }
-  const cleanTitle = derivedTitle.replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim() || "media_download";
-  const filename = `${cleanTitle}.${ext}`;
   return {
-    success: true,
-    engine: "Resilient Media Bypass Stream",
-    isDirect: true,
-    id: "resilient_" + Date.now(),
-    downloadUrl: `/api/proxy-download?url=resilient&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&isAudio=${isAudioExt}&stream=true`,
-    directUrl: url,
-    title: cleanTitle,
-    format: ext
+    success: false,
+    engine: "None",
+    error: "\u098F\u0987 \u09B2\u09BF\u0999\u09CD\u0995\u099F\u09BF \u09B8\u09BE\u09B0\u09CD\u09AD\u09BE\u09B0 \u09A5\u09C7\u0995\u09C7 \u09B8\u09B0\u09BE\u09B8\u09B0\u09BF \u0995\u09A8\u09AD\u09BE\u09B0\u09CD\u099F \u0995\u09B0\u09BE \u09AF\u09BE\u09AF\u09BC\u09A8\u09BF\u0964 \u0985\u09A8\u09C1\u0997\u09CD\u09B0\u09B9 \u0995\u09B0\u09C7 \u0986\u09AC\u09BE\u09B0 \u099A\u09C7\u09B7\u09CD\u099F\u09BE \u0995\u09B0\u09C1\u09A8 \u09AC\u09BE \u09B8\u09B0\u09BE\u09B8\u09B0\u09BF \u09AE\u09BF\u09B0\u09B0 \u09B2\u09BF\u0999\u09CD\u0995 \u09AC\u09CD\u09AF\u09AC\u09B9\u09BE\u09B0 \u0995\u09B0\u09C1\u09A8\u0964"
   };
 }
 function streamResilientMedia(cleanFilename, isAudio, req, res, title) {
@@ -428,17 +664,13 @@ function streamResilientMedia(cleanFilename, isAudio, req, res, title) {
   const originUrl = req.query?.originUrl || "";
   const isBBB = isBigBuckBunny(originUrl, title || cleanFilename);
   if (!isBBB && originUrl) {
-    if (originUrl.includes("youtube.com") || originUrl.includes("youtu.be")) {
-      const ytMatch = originUrl.match(/(?:v=|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-      const ytId = ytMatch ? ytMatch[1] : "";
-      if (isAudio) {
-        return res.redirect(302, `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
-      } else {
-        return res.redirect(302, ytId ? `https://www.ssyoutube.com/watch?v=${ytId}` : `https://yt1s.com/en?q=${encodeURIComponent(originUrl)}`);
-      }
-    } else if (originUrl.includes("facebook.com") || originUrl.includes("fb.watch")) {
-      return res.redirect(302, `https://fdown.net/`);
+    if (!res.headersSent) {
+      return res.status(502).json({
+        success: false,
+        error: "\u09AE\u09BF\u09A1\u09BF\u09AF\u09BC\u09BE \u09B8\u09CD\u099F\u09CD\u09B0\u09BF\u09AE \u098F\u0987 \u09AE\u09C1\u09B9\u09C2\u09B0\u09CD\u09A4\u09C7 \u09B8\u09BE\u09B0\u09CD\u09AD\u09BE\u09B0 \u09A5\u09C7\u0995\u09C7 \u09AA\u09BE\u0993\u09AF\u09BC\u09BE \u09AF\u09BE\u09AF\u09BC\u09A8\u09BF\u0964 \u0985\u09A8\u09C1\u0997\u09CD\u09B0\u09B9 \u0995\u09B0\u09C7 \u0986\u09AC\u09BE\u09B0 \u099A\u09C7\u09B7\u09CD\u099F\u09BE \u0995\u09B0\u09C1\u09A8\u0964"
+      });
     }
+    return;
   }
   if (isAudio) {
     const audioMasterSource = "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4";
@@ -669,12 +901,16 @@ async function proxyStreamMedia(targetUrl, rawFilename, req, res) {
     return streamYtDlpMedia(targetUrl, cleanFilename, isAudio, req, res);
   }
   let referer = "https://www.google.com/";
+  let originHeader;
   try {
     const parsed = new URL(targetUrl);
     if (parsed.hostname.includes("tiktok") || parsed.hostname.includes("byteoversea")) {
       referer = "https://www.tiktok.com/";
     } else if (parsed.hostname.includes("googlevideo") || parsed.hostname.includes("youtube")) {
       referer = "https://www.youtube.com/";
+    } else if (parsed.hostname.includes("etacloud.org")) {
+      referer = "https://y2mate.gs/";
+      originHeader = "https://y2mate.gs";
     } else if (parsed.hostname.includes("loader.to") || parsed.hostname.includes("affadaffa")) {
       referer = "https://loader.to/";
     } else if (parsed.hostname.includes("wikimedia.org") || parsed.hostname.includes("wikipedia.org")) {
@@ -684,7 +920,7 @@ async function proxyStreamMedia(targetUrl, rawFilename, req, res) {
     }
   } catch {
   }
-  if (isAudio && (targetUrl.includes(".mp4") || targetUrl.includes(".webm") || targetUrl.includes(".mov") || cleanFilename.toLowerCase().endsWith(".mp3"))) {
+  if (isAudio && !targetUrl.includes("etacloud.org") && (targetUrl.includes(".mp4") || targetUrl.includes(".webm") || targetUrl.includes(".mov"))) {
     const asciiSafeFilename = cleanFilename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
     const utf8EncodedFilename = encodeURIComponent(cleanFilename);
     let sentHeaders = false;
@@ -754,10 +990,13 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r
     return;
   }
   const headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer": referer,
     "Accept": "*/*"
   };
+  if (originHeader) {
+    headers["Origin"] = originHeader;
+  }
   if (req.headers.range) {
     headers["Range"] = req.headers.range;
   }
@@ -775,14 +1014,28 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r
     }
   });
   try {
-    const upstream = await fetch(targetUrl, {
+    let upstream = await fetch(targetUrl, {
       headers,
       signal: controller.signal,
       redirect: "follow"
     });
+    if (!upstream.ok && upstream.status !== 206 && targetUrl.includes("etacloud.org") && !req.destroyed) {
+      await new Promise((r) => setTimeout(r, 1500));
+      upstream = await fetch(targetUrl, {
+        headers,
+        signal: controller.signal,
+        redirect: "follow"
+      });
+    }
     clearTimeout(connectTimer);
     if (!upstream.ok && upstream.status !== 206) {
-      console.warn(`Upstream returned ${upstream.status} for ${targetUrl.slice(0, 80)}, activating resilient fallback...`);
+      console.warn(`Upstream returned ${upstream.status} for ${targetUrl.slice(0, 80)}`);
+      if (originUrl && !isBigBuckBunny(originUrl, cleanFilename)) {
+        return res.status(502).json({
+          success: false,
+          error: "\u09AE\u09BF\u09A1\u09BF\u09AF\u09BC\u09BE \u09AB\u09BE\u0987\u09B2 \u09B8\u09BE\u09B0\u09CD\u09AD\u09BE\u09B0 \u09A5\u09C7\u0995\u09C7 \u0986\u09A8\u09A4\u09C7 \u09B8\u09AE\u09B8\u09CD\u09AF\u09BE \u09B9\u09AF\u09BC\u09C7\u099B\u09C7\u0964 \u0985\u09A8\u09C1\u0997\u09CD\u09B0\u09B9 \u0995\u09B0\u09C7 \u09AA\u09C1\u09A8\u09B0\u09BE\u09AF\u09BC \u099A\u09C7\u09B7\u09CD\u099F\u09BE \u0995\u09B0\u09C1\u09A8\u0964"
+        });
+      }
       if (originUrl) {
         return streamYtDlpMedia(originUrl, cleanFilename, isAudio, req, res);
       }
@@ -804,11 +1057,12 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r
     const contentRange = upstream.headers.get("content-range");
     res.status(status);
     res.setHeader("Content-Type", contentType);
-    const asciiSafeFilename = cleanFilename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
+    const isInlineStream = req.query?.inline === "true";
+    const asciiSafeFilename = cleanFilename.replace(/[^\x20-\x7E]/g, "_").replace(/[;,"\\/|*?<>:]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "") || (isAudio ? "audio_download.mp3" : "video_download.mp4");
     const utf8EncodedFilename = encodeURIComponent(cleanFilename);
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${asciiSafeFilename}"; filename*=UTF-8''${utf8EncodedFilename}`
+      isInlineStream ? "inline" : `attachment; filename="${asciiSafeFilename}"; filename*=UTF-8''${utf8EncodedFilename}`
     );
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges");
@@ -1771,7 +2025,24 @@ async function startServer() {
       return res.status(500).json({ success: false, error: err.message, tracks: [] });
     }
   });
-  app.get("/api/audio/stream", (req, res) => {
+  app.get("/api/audio/resolve", async (req, res) => {
+    const id = req.query.id || "";
+    if (!id) return res.status(400).json({ success: false, error: "Missing id" });
+    try {
+      const resolved = await resolveYouTubeAudioStreamUrl(id);
+      if (resolved?.downloadUrl) {
+        return res.json({
+          success: true,
+          streamUrl: `/api/audio/stream?id=${encodeURIComponent(id)}&title=${encodeURIComponent(resolved.title || "audio")}`,
+          title: resolved.title
+        });
+      }
+      return res.status(404).json({ success: false, error: "Audio stream could not be resolved" });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.get("/api/audio/stream", async (req, res) => {
     const id = req.query.id || "";
     const title = req.query.title || "audio_track";
     const localAudioPath = import_path2.default.join(process.cwd(), "server", "assets", "audio_master_320k.mp3");
@@ -1800,7 +2071,18 @@ async function startServer() {
         return import_fs2.default.createReadStream(localAudioPath).pipe(res);
       }
     }
-    return res.status(404).json({ error: "Direct audio stream not available for cloud server IP; use client YouTube player" });
+    try {
+      const resolved = await resolveYouTubeAudioStreamUrl(id);
+      if (resolved?.downloadUrl) {
+        req.query.inline = "true";
+        req.query.isAudio = "true";
+        const safeName = `${(resolved.title || title).replace(/[\\/:*?"<>|]/g, "_")}.mp3`;
+        return proxyStreamMedia(resolved.downloadUrl, safeName, req, res);
+      }
+    } catch (err) {
+      console.warn("Audio stream resolution failed:", err.message);
+    }
+    return res.status(404).json({ error: "Direct audio stream unavailable for this track" });
   });
   app.get("/api/bypass/engines", (_req, res) => {
     res.json({
@@ -1919,6 +2201,13 @@ async function startServer() {
       return res.status(400).json({ error: "Missing progressUrl or id" });
     }
     try {
+      if (progressUrl.startsWith("etacloud::")) {
+        const etaProg = await checkEtaCloudProgress(progressUrl);
+        if (!etaProg) {
+          return res.status(500).json({ success: false, error: "EtaCloud progress check failed" });
+        }
+        return res.json(etaProg);
+      }
       const resp = await fetch(progressUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",

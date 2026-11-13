@@ -320,28 +320,31 @@ export function startDownloadSimulation(
       }
 
       let startData: any = null;
-      if (!startResp.ok) {
-        startData = {
-          success: true,
-          engine: 'Resilient Media Stream Bypass',
-          isDirect: true,
-          downloadUrl: `/api/proxy-download?url=resilient&originUrl=${encodeURIComponent(video.originalUrl)}&filename=${encodeURIComponent(fileName)}&type=${format.type}&isAudio=${format.type === 'audio'}&stream=true`,
-          directUrl: video.originalUrl,
-        };
-      } else {
+      try {
         startData = await startResp.json();
-        if (!startData.success) {
-          startData = {
-            success: true,
-            engine: 'Resilient Media Stream Bypass',
-            isDirect: true,
-            downloadUrl: `/api/proxy-download?url=resilient&originUrl=${encodeURIComponent(video.originalUrl)}&filename=${encodeURIComponent(fileName)}&type=${format.type}&isAudio=${format.type === 'audio'}&stream=true`,
-            directUrl: video.originalUrl,
-          };
-        }
+      } catch {
+        startData = null;
+      }
+
+      if (!startResp.ok || !startData?.success) {
+        const errMsg = startData?.error || 'এই গান/ভিডিওটি এই মুহূর্তে সার্ভার থেকে ডাউনলোড করা যায়নি। পুনরায় চেষ্টা করুন অথবা নিচের ১-ক্লিক মিরর ব্যবহার করুন।';
+        task.status = 'failed';
+        task.error = errMsg;
+        task.eta = 'Failed';
+        wrappedOnProgress({ ...task });
+        wrappedOnError(taskId, errMsg);
+        return;
       }
 
       task.engine = startData.engine || 'Native Stream Bypass';
+
+      const genericTitles = ['YouTube Video', 'YouTube Video Stream', 'Universal Web Media Stream', 'Media Download'];
+      const effectiveTitle = (startData.title && (genericTitles.includes(video.title) || video.title.startsWith('YouTube_')))
+        ? String(startData.title).replace(/[\\/:*?"<>|]/g, ' ').trim()
+        : cleanTitle;
+      const effectiveFileName = sanitizeFilename(effectiveTitle, format.ext);
+      task.title = startData.title && genericTitles.includes(video.title) ? String(startData.title) : task.title;
+      task.fileName = effectiveFileName;
 
       // Direct media file or native yt-dlp direct stream with steady, paced progress
       if (startData.isDirect && startData.downloadUrl) {
@@ -356,7 +359,7 @@ export function startDownloadSimulation(
         wrappedOnProgress({ ...task });
 
         // Trigger browser save
-        triggerBrowserDownload(fileName, startData.downloadUrl);
+        triggerBrowserDownload(effectiveFileName, startData.downloadUrl);
 
         task.progress = 50;
         task.speed = '8.0 MB/s';
@@ -382,7 +385,7 @@ export function startDownloadSimulation(
           } catch {}
 
           notificationManager.notifyDownloadComplete(fileName, format.quality);
-          onComplete({ ...task });
+          wrappedOnComplete({ ...task });
         }, 1200);
         return;
       }
@@ -396,12 +399,12 @@ export function startDownloadSimulation(
 
       task.status = 'converting';
       task.progress = 30;
-      task.eta = 'Encoding target media stream...';
+      task.eta = format.type === 'audio' ? 'অডিও এনকোডিং চলছে...' : 'ভিডিও এনকোডিং চলছে...';
       task.speed = '4.5 MB/s';
       wrappedOnProgress({ ...task });
 
       let attempts = 0;
-      const maxAttempts = 50; // Up to 75 seconds polling
+      const maxAttempts = 80; // Up to 120 seconds polling for longer HD MP4 music videos
 
       pollingInterval = setInterval(async () => {
         if (isCancelled) {
@@ -413,7 +416,7 @@ export function startDownloadSimulation(
         try {
           const pollResp = await fetch(
             `/api/convert/progress?id=${encodeURIComponent(convertId)}&progressUrl=${encodeURIComponent(progressUrl || '')}`,
-            { signal: AbortSignal.timeout(8000) }
+            { signal: AbortSignal.timeout(10000) }
           );
 
           if (pollResp.ok) {
@@ -422,6 +425,14 @@ export function startDownloadSimulation(
             // Completed target stream!
             if (pData.success && pData.downloadUrl) {
               clearInterval(pollingInterval);
+              if (pData.title && (genericTitles.includes(video.title) || video.title.startsWith('YouTube_'))) {
+                const resolvedClean = String(pData.title).replace(/[\\/:*?"<>|]/g, ' ').trim();
+                if (resolvedClean) {
+                  task.title = String(pData.title);
+                  task.fileName = sanitizeFilename(resolvedClean, format.ext);
+                }
+              }
+
               task.status = 'completed';
               task.progress = 100;
               task.speed = 'Finished';
@@ -429,7 +440,10 @@ export function startDownloadSimulation(
               task.downloadedBytes = totalBytes;
               task.downloadedSize = task.totalSize;
 
-              const realDownloadUrl = `/api/proxy-download?url=${encodeURIComponent(pData.downloadUrl)}&originUrl=${encodeURIComponent(video.originalUrl)}&filename=${encodeURIComponent(fileName)}&type=${format.type}&isAudio=${format.type === 'audio'}&stream=true`;
+              const finalName = task.fileName || effectiveFileName;
+              const realDownloadUrl = pData.downloadUrl.startsWith('/api/')
+                ? pData.downloadUrl
+                : `/api/proxy-download?url=${encodeURIComponent(pData.downloadUrl)}&originUrl=${encodeURIComponent(video.originalUrl)}&filename=${encodeURIComponent(finalName)}&type=${format.type}&isAudio=${format.type === 'audio'}&stream=true`;
               task.fileBlobUrl = realDownloadUrl;
               task.directUrl = pData.downloadUrl;
 
@@ -443,9 +457,17 @@ export function startDownloadSimulation(
               } catch {}
 
               // Trigger download of TARGET media file
-              triggerBrowserDownload(fileName, realDownloadUrl);
-              notificationManager.notifyDownloadComplete(fileName, format.quality);
+              triggerBrowserDownload(finalName, realDownloadUrl);
+              notificationManager.notifyDownloadComplete(finalName, format.quality);
               wrappedOnComplete({ ...task });
+              return;
+            } else if (pData.error) {
+              clearInterval(pollingInterval);
+              task.status = 'failed';
+              task.error = pData.error || 'ফাইল কনভার্সন ব্যর্থ হয়েছে। পুনরায় চেষ্টা করুন।';
+              task.eta = 'Failed';
+              wrappedOnProgress({ ...task });
+              wrappedOnError(taskId, task.error);
               return;
             } else {
               // In progress for target video
@@ -475,39 +497,13 @@ export function startDownloadSimulation(
         }
       }, 1500);
     } catch (startErr: any) {
-      console.warn('Target conversion recovery activated:', startErr?.message);
-      const fallbackUrl = `/api/proxy-download?url=resilient&originUrl=${encodeURIComponent(video.originalUrl)}&filename=${encodeURIComponent(fileName)}&type=${format.type}&isAudio=${format.type === 'audio'}&stream=true`;
-      
-      task.engine = 'Auto-Recover Media Pipeline';
-      task.status = 'downloading';
-      task.progress = 65;
-      task.speed = '7.5 MB/s';
-      task.eta = '1s';
-      task.fileBlobUrl = fallbackUrl;
-      task.directUrl = video.originalUrl;
+      if (isCancelled) return;
+      const errMsg = startErr?.message || 'সার্ভারের সাথে সংযোগ ব্যর্থ হয়েছে। পুনরায় চেষ্টা করুন।';
+      task.status = 'failed';
+      task.error = errMsg;
+      task.eta = 'Failed';
       wrappedOnProgress({ ...task });
-
-      setTimeout(() => {
-        if (isCancelled) return;
-        task.status = 'completed';
-        task.progress = 100;
-        task.speed = 'Finished';
-        task.eta = '0s';
-        task.downloadedBytes = totalBytes;
-        task.downloadedSize = task.totalSize;
-
-        try {
-          confetti({
-            particleCount: 80,
-            spread: 60,
-            origin: { y: 0.8 },
-          });
-        } catch {}
-
-        triggerBrowserDownload(fileName, fallbackUrl);
-        notificationManager.notifyDownloadComplete(fileName, format.quality);
-        wrappedOnComplete({ ...task });
-      }, 650);
+      wrappedOnError(taskId, errMsg);
     }
   };
 

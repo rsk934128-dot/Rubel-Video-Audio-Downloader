@@ -44,6 +44,7 @@ import {
   saveDownloadHistory 
 } from '../services/downloadManager';
 import { getTranslation } from '../utils/translations';
+import batchPipelineImg from '../assets/images/app_batch_pipeline_visual_1794589328617.jpg';
 
 interface Props {
   language: Language;
@@ -398,8 +399,8 @@ export const BatchDownloaderView: React.FC<Props> = ({
       <div className="p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-rose-950/30 border border-slate-800 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
         
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
-          <div>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
+          <div className="flex-1 space-y-3">
             <div className="flex items-center gap-2 mb-1">
               <span className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
                 <Layers className="w-5 h-5" />
@@ -411,16 +412,24 @@ export const BatchDownloaderView: React.FC<Props> = ({
             <p className="text-xs sm:text-sm text-slate-400 max-w-xl">
               {t.batchDesc}
             </p>
+            <div>
+              <button
+                onClick={() => onSwitchToSingle()}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition inline-flex items-center gap-1.5"
+              >
+                <span>{language === 'bn' ? 'একক লিঙ্ক মোড' : 'Single URL Mode'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onSwitchToSingle()}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center gap-1.5"
-            >
-              <span>{language === 'bn' ? 'একক লিঙ্ক মোড' : 'Single URL Mode'}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="hidden sm:block w-full md:w-52 aspect-[4/3] rounded-2xl overflow-hidden border border-slate-700/70 bg-slate-950 shadow-xl shrink-0">
+            <img
+              src={batchPipelineImg}
+              alt={language === 'bn' ? 'মাল্টি-লিঙ্ক ব্যাচ ডাউনলোড কিউ' : 'Multi-Link Batch Download Pipeline'}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover"
+            />
           </div>
         </div>
       </div>
@@ -640,14 +649,19 @@ export const BatchDownloaderView: React.FC<Props> = ({
 
         {/* Queue Items List */}
         {totalCount === 0 ? (
-          <div className="p-12 rounded-3xl bg-slate-900/40 border border-dashed border-slate-800 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-800/80 text-slate-500 flex items-center justify-center mx-auto">
-              <Layers className="w-6 h-6" />
+          <div className="p-8 sm:p-10 rounded-3xl bg-slate-900/40 border border-dashed border-slate-800 text-center space-y-4">
+            <div className="w-52 aspect-[4/3] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-xl mx-auto">
+              <img
+                src={batchPipelineImg}
+                alt="Batch Queue Illustration"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover opacity-90"
+              />
             </div>
-            <h4 className="text-sm font-semibold text-slate-300">
+            <h4 className="text-sm sm:text-base font-semibold text-slate-200">
               {language === 'bn' ? 'কোনো ভিডিও কিউতে নেই' : 'No videos in download queue'}
             </h4>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
               {language === 'bn' 
                 ? 'উপরের বক্সে আপনার কাঙ্ক্ষিত ভিডিও লিঙ্কগুলো (YouTube, Facebook, Instagram, ইত্যাদি) এক লাইনে একটি করে পেস্ট করুন।' 
                 : 'Paste your target video links (YouTube, Facebook, Instagram, etc.) into the box above, one URL per line.'}

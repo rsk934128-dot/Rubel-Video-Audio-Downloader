@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { storagePreferenceManager } from '../services/storagePreferenceManager';
 import { StorageConfig } from '../types';
+import studioFallbackImg from '../assets/images/app_hero_media_studio_1794589325721.jpg';
 
 interface Props {
   video: VideoMetadata;
@@ -257,13 +258,18 @@ export const VideoMiniPlayerPreview: React.FC<Props> = ({
               /* 3. High-Definition Poster / Interactive Preview Stage */
               <div className="relative w-full h-full">
                 <img
-                  src={video.thumbnail}
+                  src={video.thumbnail || studioFallbackImg}
                   alt={video.title}
+                  referrerPolicy="no-referrer"
                   className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = ytId 
-                      ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
-                      : 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&w=800&q=80';
+                    const img = e.currentTarget as HTMLImageElement;
+                    const fallback = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : studioFallbackImg;
+                    if (img.src !== fallback) {
+                      img.src = fallback;
+                    } else if (img.src !== studioFallbackImg) {
+                      img.src = studioFallbackImg;
+                    }
                   }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/30 pointer-events-none" />

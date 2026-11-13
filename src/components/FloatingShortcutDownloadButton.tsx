@@ -27,6 +27,7 @@ interface Props {
   onOpenStorageModal?: () => void;
   isLoading: boolean;
   hasActiveTask?: boolean;
+  hasMusicPlayer?: boolean;
   language: Language;
 }
 
@@ -37,6 +38,7 @@ export const FloatingShortcutDownloadButton: React.FC<Props> = ({
   onOpenStorageModal,
   isLoading,
   hasActiveTask = false,
+  hasMusicPlayer = false,
   language,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -146,10 +148,18 @@ export const FloatingShortcutDownloadButton: React.FC<Props> = ({
   const bestAudioFormat = video?.formats.find(f => f.type === 'audio' && (f.quality.includes('320') || f.isRecommended)) 
     || video?.formats.find(f => f.type === 'audio');
 
+  const bottomPositionClass = hasActiveTask && hasMusicPlayer
+    ? 'bottom-52 sm:bottom-52'
+    : hasActiveTask
+    ? 'bottom-28 sm:bottom-28'
+    : hasMusicPlayer
+    ? 'bottom-20 sm:bottom-20'
+    : 'bottom-6 sm:bottom-7';
+
   return (
     <aside 
       aria-label="Shortcut Downloader"
-      className={`fixed ${hasActiveTask ? 'bottom-28 sm:bottom-28' : 'bottom-6 sm:bottom-7'} right-4 sm:right-7 z-40 flex flex-col items-end pointer-events-none transition-all duration-300`}
+      className={`fixed ${bottomPositionClass} right-4 sm:right-7 z-40 flex flex-col items-end pointer-events-none transition-all duration-300`}
     >
       {/* Floating Quick Action Drawer / Flyout Panel */}
       {isOpen && (

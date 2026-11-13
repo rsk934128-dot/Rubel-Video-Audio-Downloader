@@ -24,6 +24,7 @@ import {
   RadioTower
 } from 'lucide-react';
 import { YouTubeSongTrack, Language } from '../types';
+import musicStudioImg from '../assets/images/app_music_vinyl_cover_1794589327282.jpg';
 
 interface Props {
   language: Language;
@@ -115,29 +116,50 @@ export const YouTubeMusicView: React.FC<Props> = ({
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-rose-950/60 via-slate-900 to-indigo-950/60 border border-slate-800/80 p-5 sm:p-8 shadow-xl">
         <div className="absolute top-0 right-0 w-80 h-80 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
         
-        <div className="relative z-10 max-w-3xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold">
-            <Flame className="w-3.5 h-3.5 text-rose-400" />
-            <span>ইউটিউব মিউজিক ও অ্যালবাম সার্চ ইঞ্জিন</span>
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          <div className="lg:col-span-8 space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold">
+              <Flame className="w-3.5 h-3.5 text-rose-400" />
+              <span>ইউটিউব মিউজিক ও অ্যালবাম সার্চ ইঞ্জিন</span>
+            </div>
+
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+              গান ও অ্যালবাম খুঁজুন, শুনুন এবং সরাসরি ডাউনলোড করুন
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              ইউটিউবের যেকোনো গান, শিল্পী বা মিউজিক অ্যালবাম নাম দিয়ে খুঁজুন। হাই-রেজোলিউশন অ্যালবাম আর্ট সহ গান শুনুন এবং এক ক্লিকে হাই-কোয়ালিটি অডিও (MP3) ও ভিডিও (MP4) ডাউনলোড করে নিন।
+            </p>
+
+            {/* Screen Lock & Background Playback Guarantee Notice */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <span className="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-950/50 border border-emerald-800/60 px-3 py-1.5 rounded-xl font-medium">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>🔒 অটো ব্যাকগ্রাউন্ড প্লে: অ্যাপ থেকে বের হলেও গান বন্ধ হবে না, চালু থাকবে!</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-amber-300 bg-amber-950/40 border border-amber-800/50 px-3 py-1.5 rounded-xl font-medium">
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>⚡ জিরো-ডিলে ইনস্ট্যান্ট অডিও প্লেব্যাক</span>
+              </span>
+            </div>
           </div>
 
-          <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-            গান ও অ্যালবাম খুঁজুন, শুনুন এবং সরাসরি ডাউনলোড করুন
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            ইউটিউবের যেকোনো গান, শিল্পী বা মিউজিক অ্যালবাম নাম দিয়ে খুঁজুন। হাই-রেজোলিউশন অ্যালবাম আর্ট সহ গান শুনুন এবং এক ক্লিকে হাই-কোয়ালিটি অডিও (MP3) ও ভিডিও (MP4) ডাউনলোড করে নিন।
-          </p>
-
-          {/* Screen Lock & Background Playback Guarantee Notice */}
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-            <span className="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-950/50 border border-emerald-800/60 px-3 py-1.5 rounded-xl font-medium">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>🔒 অটো ব্যাকগ্রাউন্ড প্লে: অ্যাপ থেকে বের হলেও গান বন্ধ হবে না, চালু থাকবে!</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-amber-300 bg-amber-950/40 border border-amber-800/50 px-3 py-1.5 rounded-xl font-medium">
-              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>⚡ জিরো-ডিলে ইনস্ট্যান্ট অডিও প্লেব্যাক</span>
-            </span>
+          {/* Studio Vinyl Showcase Image */}
+          <div className="lg:col-span-4">
+            <div className="relative aspect-[4/3] max-h-44 lg:max-h-none w-full rounded-2xl overflow-hidden border border-rose-500/25 shadow-2xl shadow-rose-950/40 bg-slate-950 group">
+              <img
+                src={musicStudioImg}
+                alt="Music & Audio Studio"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-transparent pointer-events-none" />
+              <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-[11px] text-slate-200">
+                <span className="font-semibold">লসলেস অডিও স্টুডিও</span>
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-500/30 text-rose-200 border border-rose-500/40">
+                  320kbps
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -258,8 +280,13 @@ export const YouTubeMusicView: React.FC<Props> = ({
                 {/* Album Cover & Duration */}
                 <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-950 border border-slate-800 mb-3 shadow-inner">
                   <img
-                    src={track.albumArt || track.thumbnail}
+                    src={track.albumArt || track.thumbnail || musicStudioImg}
                     alt={track.title}
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const img = e.currentTarget as HTMLImageElement;
+                      if (img.src !== musicStudioImg) img.src = musicStudioImg;
+                    }}
                     className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
                     loading="lazy"
                   />
@@ -391,8 +418,15 @@ export const YouTubeMusicView: React.FC<Props> = ({
 
       {/* Empty State */}
       {!isLoading && filteredTracks.length === 0 && (
-        <div className="text-center py-16 bg-slate-900/50 rounded-2xl border border-slate-800 space-y-3">
-          <Disc className="w-12 h-12 text-slate-600 mx-auto" />
+        <div className="text-center py-12 px-4 bg-slate-900/50 rounded-2xl border border-slate-800 space-y-4">
+          <div className="w-48 aspect-[4/3] mx-auto rounded-2xl overflow-hidden border border-slate-800 shadow-lg bg-slate-950">
+            <img
+              src={musicStudioImg}
+              alt="Music Search"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover opacity-90"
+            />
+          </div>
           <h3 className="text-base font-bold text-white">কোনো গান পাওয়া যায়নি</h3>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
             অন্য কোনো গানের নাম, শিল্পী বা ব্যান্ডের নাম দিয়ে পুনরায় সার্চ করুন।
@@ -426,8 +460,13 @@ export const YouTubeMusicView: React.FC<Props> = ({
             {/* Song Preview Card */}
             <div className="flex items-center gap-3 bg-slate-950/70 p-3 rounded-xl border border-slate-800/80">
               <img
-                src={selectedTrackForDownload.thumbnail}
+                src={selectedTrackForDownload.thumbnail || musicStudioImg}
                 alt={selectedTrackForDownload.title}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const img = e.currentTarget as HTMLImageElement;
+                  if (img.src !== musicStudioImg) img.src = musicStudioImg;
+                }}
                 className="w-16 h-12 object-cover rounded-lg shrink-0 border border-slate-800"
               />
               <div className="min-w-0 flex-1">

@@ -24,6 +24,7 @@ import {
   Laptop,
   CheckCheck
 } from 'lucide-react';
+import pwaShareGuideImg from '../assets/images/readme_mobile_pwa_1794589128878.jpg';
 
 interface Props {
   language: Language;
@@ -260,14 +261,33 @@ export const PWAShareTargetTutorial: React.FC<Props> = ({
         <div className="space-y-6">
           {/* Visual Step-by-Step Flow */}
           <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800">
-            <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-              <Smartphone className="w-5 h-5 text-rose-400" />
-              <span>
-                {language === 'bn' 
-                  ? 'কীভাবে Web Share Target কাজ করে? (৪টি ধাপের ফ্লো)' 
-                  : 'How Web Share Target Works (4-Step Native Flow)'}
-              </span>
-            </h3>
+            <div className="mb-5 grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+              <div className="lg:col-span-7 space-y-2">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Smartphone className="w-5 h-5 text-rose-400" />
+                  <span>
+                    {language === 'bn' 
+                      ? 'কীভাবে Web Share Target কাজ করে? (৪টি ধাপের ফ্লো)' 
+                      : 'How Web Share Target Works (4-Step Native Flow)'}
+                  </span>
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                  {language === 'bn'
+                    ? 'ফোনে অ্যাপটি ইনস্টল থাকলে ইউটিউব, ফেসবুক বা ইনস্টাগ্রামের যেকোনো ভিডিওর Share বাটনে চাপলেই সরাসরি আমাদের ডাউনলোডার অ্যাপটি চলে আসবে।'
+                    : 'Once installed as a PWA or Android app, tapping Share inside YouTube, Facebook, or Instagram opens this downloader automatically.'}
+                </p>
+              </div>
+              <div className="lg:col-span-5">
+                <div className="aspect-[4/3] max-h-52 w-full rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 shadow-xl">
+                  <img
+                    src={pwaShareGuideImg}
+                    alt={language === 'bn' ? 'অ্যান্ড্রয়েড শেয়ার শিট ওয়ার্কফ্লো' : 'Android Share Sheet Workflow'}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 relative">
