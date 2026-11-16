@@ -11,7 +11,8 @@ import {
   Info, 
   X,
   Share2,
-  HardDrive
+  HardDrive,
+  BatteryCharging
 } from 'lucide-react';
 import { backgroundKeepAlive } from '../services/backgroundKeepAlive';
 import { notificationManager, NotificationPermissionState } from '../services/notificationManager';
@@ -155,6 +156,18 @@ export const MobilePersistenceBar: React.FC<Props> = ({ onOpenStorageModal }) =>
                     : 'স্টোরেজ'}
                 </span>
               </button>
+
+              {storageConfig.batterySaverMode && (
+                <button
+                  id="bar-battery-saver-indicator"
+                  onClick={onOpenStorageModal}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition shadow-sm"
+                  title="ব্যাটারি সেভার মোড সক্রিয় আছে — পরিবর্তন করতে ক্লিক করুন"
+                >
+                  <BatteryCharging className="w-3.5 h-3.5 text-amber-400" />
+                  <span>ইকো / ব্যাটারি সেভার</span>
+                </button>
+              )}
 
               {/* Toggle Switch */}
               <button

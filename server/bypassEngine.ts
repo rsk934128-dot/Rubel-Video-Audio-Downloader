@@ -128,12 +128,32 @@ async function bypassTikTok(url: string, format: string): Promise<BypassResult |
 
 export interface YtDlpExtractionResult {
   url: string;
+  audioUrl?: string;
   title?: string;
   thumbnail?: string;
   ext?: string;
   duration?: number;
   format?: string;
   fileSize?: number;
+}
+
+function formatByteSize(bytes: number): string {
+  if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '15.0 MB';
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb.toFixed(2)} GB`;
+  const mb = Math.max(0.1, bytes / (1024 * 1024));
+  return `${mb.toFixed(1)} MB`;
+}
+
+function resolveTargetHeight(requestedFormat?: string): number {
+  const f = String(requestedFormat || '').toLowerCase();
+  if (f.includes('4k') || f.includes('2160')) return 2160;
+  if (f.includes('1440') || f.includes('2k')) return 1440;
+  if (f.includes('1080')) return 1080;
+  if (f.includes('720')) return 720;
+  if (f.includes('480')) return 480;
+  if (f.includes('360')) return 360;
+  return 1080;
 }
 
 // Quick fallback extractor using -g directly
@@ -173,11 +193,12 @@ function runYtDlpDirectUrl(url: string, isAudio: boolean): Promise<string | null
   });
 }
 
-// 2. High-Performance yt-dlp Native Extractor (Node JS Runtime + Android Player Client)
-function runYtDlpUrlExtractor(url: string, isAudio: boolean): Promise<YtDlpExtractionResult | null> {
+// 2. High-Performance yt-dlp Native Extractor (Node JS Runtime + Android/Web Player Client + HD/4K Support)
+function runYtDlpUrlExtractor(url: string, isAudio: boolean, requestedFormat?: string): Promise<YtDlpExtractionResult | null> {
   return new Promise((resolve) => {
     const isYouTube = /(youtube\.com|youtu\.be)/i.test(url);
     const ytDlpPath = path.resolve(process.cwd(), 'yt-dlp');
+    const maxHeight = resolveTargetHeight(requestedFormat);
 
     // Ensure permissions
     try {
@@ -200,15 +221,17 @@ function runYtDlpUrlExtractor(url: string, isAudio: boolean): Promise<YtDlpExtra
       if (isAudio) {
         // Format 140 is AAC/M4A 128k audio, format 251 is Opus audio
         args.push('-f', '140/ba[ext=m4a]/251/ba/b');
+      } else if (maxHeight >= 1080) {
+        // Support large 1080p/1440p/4K adaptive video+audio streams or best progressive fallback
+        args.push('-f', `bv*[height<=${maxHeight}][ext=mp4]+ba[ext=m4a]/bv*[height<=${maxHeight}]+ba/22/best[ext=mp4]/b/best`);
       } else {
-        // 22 is 720p progressive MP4, 18 is 360p progressive MP4
-        args.push('-f', '22/18/best[ext=mp4]/b[ext=mp4]/b/best');
+        args.push('-f', `b[ext=mp4][height<=${maxHeight}]/b[height<=${maxHeight}]/22/18/best[ext=mp4]/b/best`);
       }
     } else {
       if (isAudio) {
         args.push('-f', 'ba[ext=m4a]/ba/b/best');
       } else {
-        args.push('-f', 'b[ext=mp4][height<=1080]/b[height<=1080]/b/best');
+        args.push('-f', `b[ext=mp4][height<=${maxHeight}]/bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b/best`);
       }
     }
 
@@ -243,6 +266,19 @@ function runYtDlpUrlExtractor(url: string, isAudio: boolean): Promise<YtDlpExtra
 
           if (json) {
             let streamUrl = json.url;
+            let audioUrl: string | undefined;
+
+            // Check if yt-dlp chose split adaptive video+audio formats for large 1080p/2K/4K streams
+            if (!streamUrl && Array.isArray(json.requested_formats) && json.requested_formats.length >= 2) {
+              const vFmt = json.requested_formats.find((f: any) => f.vcodec && f.vcodec !== 'none' && f.url);
+              const aFmt = json.requested_formats.find((f: any) => f.acodec && f.acodec !== 'none' && (!f.vcodec || f.vcodec === 'none') && f.url);
+              if (vFmt?.url && aFmt?.url) {
+                streamUrl = vFmt.url;
+                audioUrl = aFmt.url;
+              } else if (vFmt?.url) {
+                streamUrl = vFmt.url;
+              }
+            }
 
             // If top-level url not directly given, inspect formats
             if (!streamUrl && json.formats && Array.isArray(json.formats)) {
@@ -271,6 +307,7 @@ function runYtDlpUrlExtractor(url: string, isAudio: boolean): Promise<YtDlpExtra
             if (streamUrl) {
               resolve({
                 url: streamUrl,
+                audioUrl,
                 title: json.title,
                 thumbnail: json.thumbnail,
                 ext: json.ext || (isAudio ? 'mp3' : 'mp4'),
@@ -475,12 +512,13 @@ export async function bypassEtaCloud(url: string, format: string): Promise<Bypas
 
     // If conversion is already complete (or no progressURL needed), return direct ready URL
     if (!convData.progressURL) {
+      const safeEtaTitle = (convData.title || `YouTube_${videoId}`).replace(/[\\/:*?"<>|\r\n]+/g, '_').trim().slice(0, 80) || `YouTube_${videoId}`;
       return {
         success: true,
         engine: 'EtaCloud High-Speed Extractor',
         isDirect: true,
         id: jobId,
-        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent((convData.title || `YouTube_${videoId}`) + '.' + etaFormat)}&isAudio=${isAudio}&stream=true`,
+        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(`${safeEtaTitle}.${etaFormat}`)}&isAudio=${isAudio}&stream=true`,
         directUrl: finalDownloadUrl,
         title: convData.title || `YouTube_${videoId}`,
         format: etaFormat,
@@ -497,6 +535,7 @@ export async function bypassEtaCloud(url: string, format: string): Promise<Bypas
         const quickProg: any = await quickProgResp.json();
         if (quickProg.progress >= 3 && !quickProg.error) {
           const resolvedTitle = quickProg.title || convData.title || `YouTube_${videoId}`;
+          const safeResolvedTitle = String(resolvedTitle).replace(/[\\/:*?"<>|\r\n]+/g, '_').trim().slice(0, 80) || `YouTube_${videoId}`;
           if (isAudio) {
             etaAudioStreamCache.set(videoId, {
               downloadUrl: finalDownloadUrl,
@@ -509,7 +548,7 @@ export async function bypassEtaCloud(url: string, format: string): Promise<Bypas
             engine: 'EtaCloud High-Speed Extractor',
             isDirect: true,
             id: jobId,
-            downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(`${resolvedTitle}.${etaFormat}`)}&isAudio=${isAudio}&stream=true`,
+            downloadUrl: `/api/proxy-download?url=${encodeURIComponent(finalDownloadUrl)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(`${safeResolvedTitle}.${etaFormat}`)}&isAudio=${isAudio}&stream=true`,
             directUrl: finalDownloadUrl,
             title: resolvedTitle,
             format: etaFormat,
@@ -696,8 +735,8 @@ export async function resolveBypassMedia(url: string, format: string): Promise<B
     };
   }
 
-  // Tier 1: Direct media file check (.mp4, .mp3, etc.)
-  const isDirect = /\.(mp4|mp3|m4a|webm|wav|ogg|mov|flac|aac)(\?.*)?$/i.test(url);
+  // Tier 1: Direct media file check (.mp4, .mkv, .mp3, etc.)
+  const isDirect = /\.(mp4|mp3|m4a|webm|wav|ogg|mov|mkv|m4v|avi|flac|aac|3gp)(\?.*)?$/i.test(url);
   if (isDirect) {
     try {
       const parsed = new URL(url);
@@ -731,24 +770,25 @@ export async function resolveBypassMedia(url: string, format: string): Promise<B
     }
   }
 
-  // Tier 4: Native High-Speed Extractor (yt-dlp with Node JS runtime)
+  // Tier 4: Native High-Speed Extractor (yt-dlp with Node JS runtime & HD/4K large-file support)
   try {
-    const ytdlpMeta = await runYtDlpUrlExtractor(url, isAudio);
+    const ytdlpMeta = await runYtDlpUrlExtractor(url, isAudio, format);
     if (ytdlpMeta && ytdlpMeta.url) {
-      const ext = isAudio ? (ytdlpMeta.ext === 'm4a' ? 'm4a' : 'mp3') : (ytdlpMeta.ext || 'mp4');
+      const ext = isAudio ? (ytdlpMeta.ext === 'm4a' ? 'm4a' : 'mp3') : (ytdlpMeta.audioUrl ? 'mp4' : (ytdlpMeta.ext || 'mp4'));
       const cleanTitle = (ytdlpMeta.title || 'media_download')
         .replace(/[\\/:*?"<>|]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 80) || 'media_download';
       const filename = `${cleanTitle}.${ext}`;
+      const audioParam = ytdlpMeta.audioUrl ? `&audioUrl=${encodeURIComponent(ytdlpMeta.audioUrl)}` : '';
 
       return {
         success: true,
-        engine: 'Native High-Speed Stream Bypass (yt-dlp)',
+        engine: ytdlpMeta.audioUrl ? 'HD Live Muxed Stream (yt-dlp + FFmpeg)' : 'Native High-Speed Stream Bypass (yt-dlp)',
         isDirect: true,
         id: 'ytdlp_' + Date.now(),
-        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(ytdlpMeta.url)}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&isAudio=${isAudio}&stream=true`,
+        downloadUrl: `/api/proxy-download?url=${encodeURIComponent(ytdlpMeta.url)}${audioParam}&originUrl=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}&isAudio=${isAudio}&stream=true`,
         directUrl: ytdlpMeta.url,
         title: ytdlpMeta.title || cleanTitle,
         thumbnail: ytdlpMeta.thumbnail,
@@ -775,6 +815,30 @@ export async function resolveBypassMedia(url: string, format: string): Promise<B
   };
 }
 
+function stripLoneSurrogates(input: string): string {
+  return String(input || '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/g, '');
+}
+
+function buildSafeContentDisposition(cleanFilename: string, fallbackName: string, isInline: boolean): string {
+  if (isInline) return 'inline';
+  const safeName = stripLoneSurrogates(cleanFilename)
+    .replace(/[\x00-\x1F\x7F\\/:*?"<>|]/g, '_')
+    .replace(/_+/g, '_')
+    .trim() || fallbackName;
+  const asciiSafe = safeName
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/[;,"\\/|*?<>:]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '') || fallbackName;
+  let utf8Encoded = asciiSafe;
+  try {
+    utf8Encoded = encodeURIComponent(safeName);
+  } catch {
+    utf8Encoded = encodeURIComponent(asciiSafe);
+  }
+  return `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`;
+}
+
 // Resilient media handler: streams valid, playable 320kbps MP3 audio or MP4/WebM video with genuine full length and true size
 export function streamResilientMedia(
   cleanFilename: string,
@@ -783,12 +847,13 @@ export function streamResilientMedia(
   res: Response,
   title?: string
 ) {
-  const asciiSafe = cleanFilename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
-  const utf8Encoded = encodeURIComponent(cleanFilename);
-  const lower = cleanFilename.toLowerCase();
+  const safeClean = stripLoneSurrogates(cleanFilename).replace(/[\x00-\x1F\x7F\\/:*?"<>|]/g, '_').trim() || (isAudio ? 'audio.mp3' : 'video.mp4');
+  const asciiSafe = safeClean.replace(/[^\x20-\x7E]/g, '_').replace(/[;,"\\/|*?<>:]/g, '_') || (isAudio ? 'audio.mp3' : 'video.mp4');
+  const lower = safeClean.toLowerCase();
   const isInline = req.query?.inline === 'true' || Boolean(req.headers?.range);
+  const dispositionHeader = buildSafeContentDisposition(safeClean, isAudio ? 'audio.mp3' : 'video.mp4', isInline);
   const originUrl = (req.query?.originUrl as string) || '';
-  const isBBB = isBigBuckBunny(originUrl, title || cleanFilename);
+  const isBBB = isBigBuckBunny(originUrl, title || safeClean);
 
   // Never silently redirect /api/proxy-download to an external HTML page — that breaks <a download> and <audio>
   if (!isBBB && originUrl) {
@@ -833,14 +898,7 @@ export function streamResilientMedia(
         sentAudioHdr = true;
         res.status(200);
         res.setHeader('Content-Type', mimeType);
-        if (isInline) {
-          res.setHeader('Content-Disposition', 'inline');
-        } else {
-          res.setHeader(
-            'Content-Disposition',
-            `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`
-          );
-        }
+        res.setHeader('Content-Disposition', dispositionHeader);
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Accept-Ranges');
         res.setHeader('Accept-Ranges', 'none');
@@ -889,13 +947,22 @@ export function streamResilientMedia(
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Referer': 'https://commons.wikimedia.org/',
     'Accept': '*/*',
+    'Accept-Encoding': 'identity',
   };
   if (req.headers?.range) {
     headers['Range'] = req.headers.range as string;
   }
 
+  const abortController = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) {
+      try { abortController.abort(); } catch {}
+    }
+  });
+
   fetch(videoStreamUrl, {
     headers,
+    signal: abortController.signal,
     redirect: 'follow',
   }).then(async (up) => {
     if (!up.ok && up.status !== 206) {
@@ -906,28 +973,34 @@ export function streamResilientMedia(
     if (!res.headersSent) {
       res.status(status);
       res.setHeader('Content-Type', mimeType);
-      if (isInline) {
-        res.setHeader('Content-Disposition', 'inline');
-      } else {
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`
-        );
-      }
+      res.setHeader('Content-Disposition', dispositionHeader);
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Content-Length, Content-Range, Accept-Ranges');
       res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.setHeader('Cache-Control', 'no-store, no-transform');
       const len = up.headers.get('content-length');
       if (len) res.setHeader('Content-Length', len);
       const range = up.headers.get('content-range');
       if (range) res.setHeader('Content-Range', range);
     }
+    if (req.method === 'HEAD') {
+      return res.end();
+    }
     const { Readable } = await import('stream');
     // @ts-ignore
     const nodeStream = Readable.fromWeb(up.body);
+    nodeStream.on('error', () => {
+      if (!res.writableEnded) res.end();
+    });
+    res.on('close', () => {
+      try { nodeStream.destroy(); } catch {}
+    });
     nodeStream.pipe(res);
   }).catch((err) => {
-    console.warn('Resilient video stream fetch error:', err.message);
+    if (err?.name !== 'AbortError') {
+      console.warn('Resilient video stream fetch error:', err.message);
+    }
     if (!res.writableEnded) res.end();
   });
 }
@@ -955,17 +1028,13 @@ export function streamYtDlpMedia(
     contentType = isAudio ? 'audio/webm' : 'video/webm';
   }
 
-  const asciiSafe = cleanFilename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
-  const utf8Encoded = encodeURIComponent(cleanFilename);
+  const dispositionHeader = buildSafeContentDisposition(cleanFilename, isAudio ? 'audio.m4a' : 'video.mp4', false);
 
   const sendHeaders = () => {
     if (!res.headersSent) {
       res.status(200);
       res.setHeader('Content-Type', contentType);
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${asciiSafe}"; filename*=UTF-8''${utf8Encoded}`
-      );
+      res.setHeader('Content-Disposition', dispositionHeader);
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Accept-Ranges');
       res.setHeader('Accept-Ranges', 'none');
@@ -1037,8 +1106,10 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     return res.status(400).send('Missing url parameter');
   }
 
-  const cleanFilename = rawFilename ? rawFilename.replace(/["\r\n\\]/g, '_') : 'download_media';
-  const originUrl = req.query.originUrl as string;
+  const cleanFilename = rawFilename
+    ? stripLoneSurrogates(rawFilename).replace(/[\\/:*?"<>|\x00-\x1F\x7F]+/g, '_').replace(/_+/g, '_').trim()
+    : 'download_media';
+  const originUrl = typeof req.query.originUrl === 'string' ? req.query.originUrl : '';
   const isAudio = Boolean(
     req.query.isAudio === 'true' ||
     req.query.type === 'audio' ||
@@ -1082,14 +1153,22 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     }
   } catch {}
 
+  const audioTranscodeDisposition = buildSafeContentDisposition(cleanFilename, 'audio_download.mp3', false);
+
   // If audio format is requested from a video container (skip native etacloud.org MP3 binaries!), transcode directly via FFmpeg
   if (
     isAudio &&
     !targetUrl.includes('etacloud.org') &&
     (targetUrl.includes('.mp4') || targetUrl.includes('.webm') || targetUrl.includes('.mov'))
   ) {
-    const asciiSafeFilename = cleanFilename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
-    const utf8EncodedFilename = encodeURIComponent(cleanFilename);
+    if (req.method === 'HEAD') {
+      res.status(200);
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Disposition', audioTranscodeDisposition);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type');
+      return res.end();
+    }
     let sentHeaders = false;
     let bytesTransferred = 0;
 
@@ -1112,10 +1191,7 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
         sentHeaders = true;
         res.status(200);
         res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="${asciiSafeFilename}"; filename*=UTF-8''${utf8EncodedFilename}`
-        );
+        res.setHeader('Content-Disposition', audioTranscodeDisposition);
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type');
       }
@@ -1151,31 +1227,111 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     return;
   }
 
+  // Dual adaptive stream live muxing (1080p/1440p/4K video + audio -> fragmented MP4 stream with zero RAM buffering)
+  const audioStreamUrl = typeof req.query.audioUrl === 'string' ? req.query.audioUrl : '';
+  if (!isAudio && audioStreamUrl && audioStreamUrl.startsWith('http')) {
+    const muxDisposition = buildSafeContentDisposition(cleanFilename, 'video_hd_download.mp4', false);
+    if (req.method === 'HEAD') {
+      res.status(200);
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', muxDisposition);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type');
+      return res.end();
+    }
+    let sentHeaders = false;
+    let bytesTransferred = 0;
+
+    const ffmpegProc = spawn('ffmpeg', [
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
+      '-headers', `Referer: ${referer}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n`,
+      '-i', targetUrl,
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
+      '-headers', `Referer: ${referer}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n`,
+      '-i', audioStreamUrl,
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+      '-f', 'mp4',
+      '-'
+    ]);
+
+    ffmpegProc.stdout.on('data', (d) => {
+      bytesTransferred += d.length;
+      if (!sentHeaders && !res.headersSent) {
+        sentHeaders = true;
+        res.status(200);
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', muxDisposition);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.setHeader('Cache-Control', 'no-store, no-transform');
+      }
+      res.write(d);
+    });
+
+    ffmpegProc.stdout.on('end', () => {
+      if (!res.writableEnded) res.end();
+    });
+
+    res.on('close', () => {
+      if (!res.writableFinished) {
+        try { ffmpegProc.kill('SIGKILL'); } catch {}
+      }
+    });
+
+    ffmpegProc.on('error', (err) => {
+      console.warn('FFmpeg mux stream error:', err.message);
+      if (!res.writableEnded) res.end();
+    });
+
+    ffmpegProc.on('close', () => {
+      if (bytesTransferred === 0 && !res.headersSent) {
+        if (originUrl && !isBigBuckBunny(originUrl, cleanFilename)) {
+          return res.status(502).json({
+            success: false,
+            error: 'হাই-ডেফিনিশন ভিডিও স্ট্রিম আনতে সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।',
+          });
+        }
+        streamResilientMedia(cleanFilename, false, req, res);
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    });
+
+    return;
+  }
+
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Referer': referer,
     'Accept': '*/*',
+    'Accept-Encoding': 'identity',
   };
   if (originHeader) {
     headers['Origin'] = originHeader;
   }
 
-  // Forward Range header if requested (essential for media players and resume download)
+  // Forward Range header if requested (essential for media players and large file pause/resume download)
   if (req.headers.range) {
     headers['Range'] = req.headers.range;
   }
 
-  // Setup abort controller for initial HTTP connection/headers only
+  // Setup abort controller for initial HTTP connection/headers and true premature client disconnects
   const controller = new AbortController();
-  // 45s timeout for initial handshake
   const connectTimer = setTimeout(() => {
     controller.abort(new Error('Upstream connection timeout'));
-  }, 45000);
+  }, 60000);
 
-  // If client browser closes/aborts the connection, cleanly terminate upstream
-  req.on('close', () => {
+  // Only abort upstream if the client response actually closed before finishing transfer
+  res.on('close', () => {
     clearTimeout(connectTimer);
-    if (!res.writableEnded) {
+    if (!res.writableFinished) {
       try {
         controller.abort();
       } catch {}
@@ -1190,9 +1346,11 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     });
 
     if (!upstream.ok && upstream.status !== 206 && targetUrl.includes('etacloud.org') && !req.destroyed) {
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 1200));
+      const retryHeaders = { ...headers };
+      delete retryHeaders['Origin'];
       upstream = await fetch(targetUrl, {
-        headers,
+        headers: retryHeaders,
         signal: controller.signal,
         redirect: 'follow',
       });
@@ -1238,22 +1396,16 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
 
     // RFC 6266 / RFC 5987 compliant Content-Disposition: inline for players or attachment for downloads
     const isInlineStream = req.query?.inline === 'true';
-    const asciiSafeFilename = cleanFilename
-      .replace(/[^\x20-\x7E]/g, '_')
-      .replace(/[;,"\\/|*?<>:]/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_+|_+$/g, '') || (isAudio ? 'audio_download.mp3' : 'video_download.mp4');
-    const utf8EncodedFilename = encodeURIComponent(cleanFilename);
     res.setHeader(
       'Content-Disposition',
-      isInlineStream
-        ? 'inline'
-        : `attachment; filename="${asciiSafeFilename}"; filename*=UTF-8''${utf8EncodedFilename}`
+      buildSafeContentDisposition(cleanFilename, isAudio ? 'audio_download.mp3' : 'video_download.mp4', isInlineStream)
     );
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition, Accept-Ranges');
     res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-store, no-transform');
 
     if (contentLength) res.setHeader('Content-Length', contentLength);
     if (contentRange) res.setHeader('Content-Range', contentRange);
@@ -1470,19 +1622,48 @@ export async function inspectMediaUrl(url: string) {
     }
   }
 
-  // 2. DIRECT MEDIA FILE (Audio or Video)
+  // 2. DIRECT MEDIA FILE (Audio or Video - supports Multi-Hundred MB & GB files)
   const isAudioFile = /\.(mp3|m4a|wav|ogg|flac|aac)(\?.*)?$/i.test(lowerUrl);
-  const isVideoFile = /\.(mp4|webm|mov|mkv)(\?.*)?$/i.test(lowerUrl);
+  const isVideoFile = /\.(mp4|webm|mov|mkv|m4v|avi|ts|3gp)(\?.*)?$/i.test(lowerUrl);
 
   if (isAudioFile || isVideoFile) {
-    let sizeMb = '8.5';
+    let detectedBytes = 0;
     try {
-      const head = await fetch(cleanUrl, { method: 'HEAD', signal: AbortSignal.timeout(3500) });
+      const head = await fetch(cleanUrl, {
+        method: 'HEAD',
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'identity' },
+        signal: AbortSignal.timeout(5000),
+      });
       const len = head.headers.get('content-length');
-      if (len) {
-        sizeMb = (parseInt(len, 10) / (1024 * 1024)).toFixed(1);
+      if (len && parseInt(len, 10) > 0) {
+        detectedBytes = parseInt(len, 10);
       }
     } catch {}
+
+    // Fallback Range 0-0 probe for CDNs that block HEAD or hide Content-Length on HEAD
+    if (!detectedBytes) {
+      try {
+        const rangeProbe = await fetch(cleanUrl, {
+          method: 'GET',
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-0', 'Accept-Encoding': 'identity' },
+          signal: AbortSignal.timeout(5000),
+        });
+        const contentRange = rangeProbe.headers.get('content-range');
+        const totalMatch = contentRange?.match(/\/(\d+)$/);
+        if (totalMatch && parseInt(totalMatch[1], 10) > 0) {
+          detectedBytes = parseInt(totalMatch[1], 10);
+        } else {
+          const len = rangeProbe.headers.get('content-length');
+          if (len && parseInt(len, 10) > 1) {
+            detectedBytes = parseInt(len, 10);
+          }
+        }
+        try { await rangeProbe.body?.cancel(); } catch {}
+      } catch {}
+    }
+
+    const formattedSize = detectedBytes > 0 ? formatByteSize(detectedBytes) : '18.5 MB';
+    const sizeMb = detectedBytes > 0 ? (detectedBytes / (1024 * 1024)).toFixed(1) : '18.5';
 
     const urlPath = new URL(cleanUrl).pathname;
     const baseName = urlPath.split('/').pop() || 'media_file';
@@ -1511,7 +1692,7 @@ export async function inspectMediaUrl(url: string) {
             ext,
             quality: 'Original Master Audio',
             bitrate: 'Original',
-            estimatedSize: `${sizeMb} MB`,
+            estimatedSize: formattedSize,
             codec: 'Audio Bitstream',
             badge: 'অরিজিনাল অডিও',
             isRecommended: true,
@@ -1525,7 +1706,7 @@ export async function inspectMediaUrl(url: string) {
             ext: 'mp3' as const,
             quality: '320kbps High Quality',
             bitrate: '320 kbps',
-            estimatedSize: `${sizeMb} MB`,
+            estimatedSize: formattedSize,
             codec: 'MPEG-1 Layer 3 (MP3)',
             badge: '৩২০ kbps',
           },
@@ -1563,10 +1744,10 @@ export async function inspectMediaUrl(url: string) {
             id: 'direct-video-orig',
             type: 'video' as const,
             label: 'অরিজিনাল ফুল ভিডিও (MP4)',
-            subLabel: 'সরাসরি রিয়েল ভিডিও ফাইল',
+            subLabel: 'সরাসরি রিয়েল ভিডিও স্ট্রিম (বড় ফাইল ও রিজিউম সাপোর্টেড)',
             ext: 'mp4' as const,
             quality: 'Original Video Stream',
-            estimatedSize: `${sizeMb} MB`,
+            estimatedSize: formattedSize,
             codec: 'H.264 / AVC + AAC',
             badge: 'রিয়েল ভিডিও',
             isRecommended: true,
@@ -1579,7 +1760,7 @@ export async function inspectMediaUrl(url: string) {
             subLabel: 'কম্প্যাক্ট সাইজ স্ট্যান্ডার্ড এইচডি',
             ext: 'mp4' as const,
             quality: '720p HD',
-            estimatedSize: `${Math.max(2.0, (parseFloat(sizeMb) * 0.65)).toFixed(1)} MB`,
+            estimatedSize: formatByteSize(Math.round((detectedBytes || 18 * 1024 * 1024) * 0.65)),
             codec: 'H.264 / AVC',
             badge: 'কম্প্যাক্ট',
           },

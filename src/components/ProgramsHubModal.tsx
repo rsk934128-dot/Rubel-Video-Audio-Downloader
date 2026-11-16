@@ -18,7 +18,8 @@ import {
   CheckCircle,
   ExternalLink,
   ShieldCheck,
-  Music
+  Music,
+  UserCheck
 } from 'lucide-react';
 import { Language, AppTab } from '../types';
 
@@ -31,6 +32,7 @@ interface Props {
   onOpenAndroidReleaseModal: () => void;
   onOpenBypassModal: () => void;
   onOpenAndroidPermissionModal?: () => void;
+  onOpenCreatorModal?: () => void;
 }
 
 export const ProgramsHubModal: React.FC<Props> = ({
@@ -42,6 +44,7 @@ export const ProgramsHubModal: React.FC<Props> = ({
   onOpenAndroidReleaseModal,
   onOpenBypassModal,
   onOpenAndroidPermissionModal,
+  onOpenCreatorModal,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'one-by-one' | 'all'>('one-by-one');
@@ -254,6 +257,26 @@ export const ProgramsHubModal: React.FC<Props> = ({
       onRun: () => {
         onClose();
         setActiveTab('blueprint');
+      }
+    },
+    {
+      id: 'creator-identity',
+      titleBn: 'অ্যাপ নির্মাতার পরিচিতি ও ক্রেডিট',
+      titleEn: 'Creator Identity & Attribution',
+      categoryBn: 'নির্মাতা ও মালিকানা',
+      categoryEn: 'Creator Profile',
+      color: 'from-rose-500 to-sky-500',
+      bgColor: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
+      icon: UserCheck,
+      badgeBn: 'কাস্টমাইজেবল প্রোফাইল',
+      badgeEn: 'Editable Identity',
+      descBn: 'অ্যাপ নির্মাতার নাম, ছবি, বায়ো, যোগাযোগের ইমেইল ও সোশ্যাল লিংক প্রদর্শন ও এডিট করুন এবং আপনার ক্রেডিট শেয়ার করুন।',
+      descEn: 'View, customize, and share your creator profile, ownership credit, photo, bio, and contact links.',
+      actionBn: 'নির্মাতার পরিচিতি খুলুন',
+      actionEn: 'Open Creator Identity',
+      onRun: () => {
+        onClose();
+        if (onOpenCreatorModal) onOpenCreatorModal();
       }
     }
   ];

@@ -52,9 +52,23 @@ export const ActiveDownloadBar: React.FC<Props> = ({
   const isFailed = task.status === 'failed';
   const isAudio = task.format.type === 'audio';
 
+  const getSafeDownloadHref = (): string => {
+    const raw = task.fileBlobUrl || task.directUrl || '';
+    if (!raw) return '#';
+    if (raw.startsWith('blob:') || raw.startsWith('data:') || raw.startsWith('/api/')) {
+      return raw;
+    }
+    if (typeof window !== 'undefined' && raw.startsWith(window.location.origin + '/api/')) {
+      return raw;
+    }
+    return `/api/proxy-download?url=${encodeURIComponent(raw)}&originUrl=${encodeURIComponent(task.originalUrl || '')}&filename=${encodeURIComponent(task.fileName)}&type=${task.format.type}&isAudio=${isAudio}&stream=true`;
+  };
+
+  const safeDownloadHref = getSafeDownloadHref();
+
   const handleSaveDirectToSD = async () => {
-    const targetUrl = task.fileBlobUrl || task.directUrl;
-    if (!targetUrl) return;
+    const targetUrl = safeDownloadHref;
+    if (!targetUrl || targetUrl === '#') return;
     const res = await storagePreferenceManager.saveFileToUserStorage(
       task.fileName,
       targetUrl,
@@ -75,7 +89,7 @@ export const ActiveDownloadBar: React.FC<Props> = ({
       case 'converting':
         return language === 'bn' ? 'ফাইল একত্রীকরণ ও এনকোডিং...' : 'Multiplexing & packaging...';
       case 'completed':
-        return language === 'bn' ? 'ডাউনলোড সফল! ফাইল ডিভাইসে সেভ হয়েছে' : 'Download Complete! File saved to device';
+        return language === 'bn' ? `ডাউনলোড সফল! (${task.downloadedSize || task.totalSize})` : `Download Complete! (${task.downloadedSize || task.totalSize})`;
       case 'failed':
         return language === 'bn' ? 'ডাউনলোড ব্যর্থ হয়েছে' : 'Download failed';
       default:
@@ -155,32 +169,33 @@ export const ActiveDownloadBar: React.FC<Props> = ({
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 shrink-0">
-            {isCompleted && (task.fileBlobUrl || task.directUrl) && (
+            {isCompleted && safeDownloadHref !== '#' && (
               <div className="flex items-center gap-1.5 flex-wrap">
-                {/* Save to SD Card Button */}
-                <button
-                  id="save-to-sd-card-btn"
-                  onClick={handleSaveDirectToSD}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-950/40 transition"
-                  title="Save directly to Memory Card (SD Card)"
-                >
-                  <HardDrive className="w-3.5 h-3.5 text-white" />
-                  <span>{language === 'bn' ? 'মেমোরি কার্ডে সেভ' : 'Save to SD'}</span>
-                </button>
-
+                {/* Primary Save File Link (1-tap instant download even inside iframes/WebViews) */}
                 <a
                   id="direct-save-file-link"
-                  href={task.fileBlobUrl || task.directUrl}
+                  href={safeDownloadHref}
                   download={task.fileName}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-950/40 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>{language === 'bn' ? 'ফাইল সেভ' : 'Save File'}</span>
                 </a>
 
+                {/* Save to SD Card Button */}
+                <button
+                  id="save-to-sd-card-btn"
+                  onClick={handleSaveDirectToSD}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs font-semibold border border-emerald-500/30 transition"
+                  title="Save directly to Memory Card (SD Card)"
+                >
+                  <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{language === 'bn' ? 'মেমোরি কার্ডে সেভ' : 'Save to SD'}</span>
+                </button>
+
                 <button
                   id="save-again-btn"
-                  onClick={() => triggerBrowserDownload(task.fileName, task.fileBlobUrl || task.directUrl!)}
+                  onClick={() => triggerBrowserDownload(task.fileName, safeDownloadHref)}
                   className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition"
                   title="Trigger browser download again"
                 >
@@ -239,6 +254,20 @@ export const ActiveDownloadBar: React.FC<Props> = ({
             )}
           </div>
         </div>
+
+        {/* Helpful 1-tap note on completion */}
+        {isCompleted && safeDownloadHref !== '#' && !savedToSDMsg && (
+          <div className="mb-2 px-3 py-1.5 rounded-xl bg-emerald-950/60 border border-emerald-500/30 text-[11px] text-emerald-200 flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>
+                {language === 'bn'
+                  ? 'ফাইল প্রস্তুত! ফোনে সেভ না হলে উপরের "ফাইল সেভ" বাটনে ট্যাপ করুন।'
+                  : 'File ready! Tap "Save File" above if browser paused auto-save.'}
+              </span>
+            </span>
+          </div>
+        )}
 
         {/* Saved to SD confirmation alert if triggered */}
         {savedToSDMsg && (

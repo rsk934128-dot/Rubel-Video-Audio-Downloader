@@ -16,7 +16,8 @@ import {
   Info,
   Database,
   Zap,
-  RefreshCw
+  RefreshCw,
+  BatteryCharging
 } from 'lucide-react';
 import { storagePreferenceManager } from '../services/storagePreferenceManager';
 import { StorageConfig, StorageDestination, Language, StorageAccessStatus } from '../types';
@@ -59,6 +60,11 @@ export const StorageLocationModal: React.FC<Props> = ({
 
   const handleTogglePicker = (enabled: boolean) => {
     storagePreferenceManager.setConfig({ useNativePicker: enabled });
+  };
+
+  const handleToggleBatterySaver = () => {
+    const next = !Boolean(config.batterySaverMode);
+    storagePreferenceManager.setBatterySaverMode(next);
   };
 
   const handleVerifyAccessAndQuota = async () => {
@@ -294,6 +300,86 @@ export const StorageLocationModal: React.FC<Props> = ({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Battery Saver Mode Toggle */}
+        <div
+          id="battery-saver-section"
+          onClick={handleToggleBatterySaver}
+          className={`cursor-pointer rounded-2xl p-4 mb-5 border transition-all flex items-start justify-between gap-4 ${
+            config.batterySaverMode
+              ? 'bg-gradient-to-r from-amber-950/50 via-slate-900 to-emerald-950/30 border-amber-500/60 shadow-lg shadow-amber-950/30 ring-1 ring-amber-500/30'
+              : 'bg-slate-950/80 hover:bg-slate-900/70 border-slate-800'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div className={`p-2.5 rounded-xl mt-0.5 shrink-0 transition ${
+              config.batterySaverMode
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                : 'bg-slate-800 text-slate-400'
+            }`}>
+              <BatteryCharging className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-white">
+                  {language === 'bn' ? 'ব্যাটারি সেভার মোড (Battery Saver Mode)' : 'Battery Saver Mode'}
+                </h3>
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  config.batterySaverMode
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {config.batterySaverMode
+                    ? (language === 'bn' ? 'সক্রিয় (Eco)' : 'Active (Eco)')
+                    : (language === 'bn' ? 'বন্ধ' : 'Off')}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                {language === 'bn'
+                  ? 'অ্যাক্টিভ ডাউনলোডের সময় ব্যাকগ্রাউন্ড পোলিং (১.৫সেঃ → ৫সেঃ), হার্টবিট রিফ্রেশ (১৫সেঃ → ৬০সেঃ) ও অপ্রয়োজনীয় ওয়েক-লক কমিয়ে মোবাইলের ব্যাটারি চার্জ সাশ্রয় করে।'
+                  : 'Reduces download polling (1.5s → 5s), background refresh intervals (15s → 60s), and screen wake-locks during active downloads to conserve mobile battery.'}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                <span className={`px-2 py-0.5 rounded bg-slate-900 border ${
+                  config.batterySaverMode ? 'border-amber-500/30 text-amber-300' : 'border-slate-800 text-slate-400'
+                }`}>
+                  {config.batterySaverMode ? 'Polling: 5s' : 'Polling: 1.5s'}
+                </span>
+                <span className={`px-2 py-0.5 rounded bg-slate-900 border ${
+                  config.batterySaverMode ? 'border-amber-500/30 text-amber-300' : 'border-slate-800 text-slate-400'
+                }`}>
+                  {config.batterySaverMode ? 'Refresh: 60s' : 'Refresh: 15s'}
+                </span>
+                <span className={`px-2 py-0.5 rounded bg-slate-900 border ${
+                  config.batterySaverMode ? 'border-amber-500/30 text-amber-300' : 'border-slate-800 text-slate-400'
+                }`}>
+                  {config.batterySaverMode ? 'Lock-screen: 20s' : 'Lock-screen: 6s'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            id="battery-saver-toggle"
+            type="button"
+            role="switch"
+            aria-checked={Boolean(config.batterySaverMode)}
+            aria-label={language === 'bn' ? 'ব্যাটারি সেভার মোড চালু বা বন্ধ করুন' : 'Toggle Battery Saver Mode'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleBatterySaver();
+            }}
+            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-slate-900 mt-1 ${
+              config.batterySaverMode ? 'bg-amber-500' : 'bg-slate-700'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
+                config.batterySaverMode ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
         </div>
 
         {/* Storage Access & Device Quota Overview */}

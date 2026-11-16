@@ -1,7 +1,5 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
-import fs from 'fs';
-import { createServer as createViteServer } from 'vite';
 import { 
   resolveBypassMedia, 
   getBypassEngines, 
@@ -65,36 +63,12 @@ async function startServer() {
   app.get('/api/audio/stream', async (req: Request, res: Response) => {
     const id = (req.query.id as string) || '';
     const title = (req.query.title as string) || 'audio_track';
-    const localAudioPath = path.join(process.cwd(), 'server', 'assets', 'audio_master_320k.mp3');
 
-    // Only serve Big Buck Bunny cached audio when the track is Big Buck Bunny
-    if (isBigBuckBunny(id, title) && fs.existsSync(localAudioPath)) {
-      const stat = fs.statSync(localAudioPath);
-      const totalSize = stat.size;
-      const range = req.headers.range;
-
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Accept-Ranges', 'bytes');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges, Content-Type');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-
-      if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-        const chunksize = end - start + 1;
-        const fileStream = fs.createReadStream(localAudioPath, { start, end });
-
-        res.status(206);
-        res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
-        res.setHeader('Content-Length', chunksize);
-        return fileStream.pipe(res);
-      } else {
-        res.status(200);
-        res.setHeader('Content-Length', totalSize);
-        return fs.createReadStream(localAudioPath).pipe(res);
-      }
+    // Stream Big Buck Bunny audio directly via resilient FFmpeg pipeline (saves 23 MB on disk)
+    if (isBigBuckBunny(id, title)) {
+      req.query.inline = 'true';
+      req.query.isAudio = 'true';
+      return streamResilientMedia(title || 'Big_Buck_Bunny_Soundtrack.mp3', true, req, res, title);
     }
 
     // Resolve and stream the REAL authentic MP3 audio for this specific YouTube song ID!
@@ -289,23 +263,39 @@ async function startServer() {
 
   // Media stream proxy for direct device download (with Range support, CORS bypass, and resume capability)
   app.get('/api/proxy-download', async (req: Request, res: Response) => {
-    const downloadUrl = req.query.url as string;
-    const rawFilename = (req.query.filename as string) || 'download';
+    const rawUrlParam = Array.isArray(req.query.url) ? req.query.url[0] : req.query.url;
+    const rawFilenameParam = Array.isArray(req.query.filename) ? req.query.filename[0] : req.query.filename;
+    const downloadUrl = typeof rawUrlParam === 'string' ? rawUrlParam : '';
+    const rawFilename = typeof rawFilenameParam === 'string' && rawFilenameParam.trim() ? rawFilenameParam : 'download';
     const noStream = req.query.stream === 'false';
 
     if (!downloadUrl) {
-      return res.status(400).send('Missing url parameter');
+      return res.status(400).json({ success: false, error: 'Missing url parameter' });
     }
 
     if (noStream) {
       return res.redirect(302, downloadUrl);
     }
 
-    return proxyStreamMedia(downloadUrl, rawFilename, req, res);
+    try {
+      return await proxyStreamMedia(downloadUrl, rawFilename, req, res);
+    } catch (err: any) {
+      console.error('Unhandled proxy-download error:', err?.message || err);
+      if (!res.headersSent) {
+        return res.status(502).json({
+          success: false,
+          error: 'মিডিয়া ফাইল সার্ভার থেকে আনতে সমস্যা হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।',
+        });
+      }
+      if (!res.writableEnded) {
+        try { res.end(); } catch {}
+      }
+    }
   });
 
   // Vite middleware in development or static serving in production
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -319,9 +309,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+  // Disable default 5-minute Node requestTimeout so multi-hundred-MB and GB downloads complete cleanly
+  server.requestTimeout = 0;
+  server.timeout = 0;
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 70000;
 }
 
 startServer();

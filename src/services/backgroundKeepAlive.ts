@@ -1,5 +1,6 @@
 // Background Keep-Alive & Mobile Lock-Screen Activity Service
 import { notificationManager } from './notificationManager';
+import { storagePreferenceManager } from './storagePreferenceManager';
 
 // Tiny 1-second inaudible WAV base64 string
 const SILENT_WAV_BASE64 = 'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhEQAAAAAAAAAAAAAAAAAAAAAAAAA=';
@@ -26,11 +27,20 @@ class BackgroundKeepAlive {
   private isOnline: boolean = typeof navigator !== 'undefined' ? navigator.onLine : true;
   private activeDownloads: Map<string, ActiveDownloadMeta> = new Map();
   private notificationThrottleTime: number = 0;
+  private batterySaverEnabled: boolean = storagePreferenceManager.isBatterySaverEnabled();
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.initNetworkListeners();
       this.initVisibilityListener();
+
+      storagePreferenceManager.subscribe((cfg) => {
+        const nextSaver = Boolean(cfg.batterySaverMode);
+        if (nextSaver !== this.batterySaverEnabled) {
+          this.batterySaverEnabled = nextSaver;
+          this.applyBatterySaverPolicy();
+        }
+      });
 
       // Check if user previously enabled Always-Active mode
       const saved = localStorage.getItem('downloader_always_active');
@@ -38,6 +48,35 @@ class BackgroundKeepAlive {
         this.enable();
       }
     }
+  }
+
+  private applyBatterySaverPolicy() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+      this.startHeartbeatInterval();
+    }
+
+    if (this.batterySaverEnabled) {
+      this.releaseWakeLock();
+      this.stopSilentHeartbeat();
+    } else if (this.isKeepAliveActive || this.activeDownloads.size > 0) {
+      if (document.visibilityState === 'visible') {
+        this.requestWakeLock();
+      }
+      if (!this.isMusicActive) {
+        this.ensureSilentHeartbeat();
+      }
+    }
+  }
+
+  private startHeartbeatInterval() {
+    if (this.heartbeatInterval) return;
+    // Standard: 15s background refresh; Battery Saver: 60s (4x fewer radio/CPU wakeups)
+    const intervalMs = this.batterySaverEnabled ? 60000 : 15000;
+    this.heartbeatInterval = setInterval(() => {
+      this.pingServer();
+    }, intervalMs);
   }
 
   private initNetworkListeners() {
@@ -61,12 +100,14 @@ class BackgroundKeepAlive {
         if (this.isKeepAliveActive || this.activeDownloads.size > 0) {
           if (!this.isMusicActive) {
             this.ensureSilentLoopAudio();
-            this.ensureSilentHeartbeat();
+            if (!this.batterySaverEnabled) {
+              this.ensureSilentHeartbeat();
+            }
           }
         }
       } else if (document.visibilityState === 'visible') {
         console.log('App brought back to foreground');
-        if (this.isKeepAliveActive || this.activeDownloads.size > 0 || this.isMusicActive) {
+        if (!this.batterySaverEnabled && (this.isKeepAliveActive || this.activeDownloads.size > 0 || this.isMusicActive)) {
           await this.requestWakeLock();
         }
       }
@@ -266,9 +307,10 @@ class BackgroundKeepAlive {
       item.eta = eta;
       this.activeDownloads.set(id, item);
 
-      // Throttled notification updates for lock-screen
+      // Throttled notification updates for lock-screen (6s normal, 20s in Battery Saver Mode)
       const now = Date.now();
-      if (now - this.notificationThrottleTime > 6000 && document.visibilityState === 'hidden') {
+      const throttleMs = this.batterySaverEnabled ? 20000 : 6000;
+      if (now - this.notificationThrottleTime > throttleMs && document.visibilityState === 'hidden') {
         this.notificationThrottleTime = now;
         notificationManager.sendNotification({
           title: `📥 ডাউনলোড চলছে: ${progress}%`,
@@ -302,18 +344,18 @@ class BackgroundKeepAlive {
   }
 
   private async enableBackgroundService() {
-    await this.requestWakeLock();
+    if (!this.batterySaverEnabled) {
+      await this.requestWakeLock();
+    }
     // Only use silent keep-alive audio when no real music track is playing
     if (!this.isMusicActive) {
       this.ensureSilentLoopAudio();
-      this.ensureSilentHeartbeat();
+      if (!this.batterySaverEnabled) {
+        this.ensureSilentHeartbeat();
+      }
     }
 
-    if (!this.heartbeatInterval) {
-      this.heartbeatInterval = setInterval(() => {
-        this.pingServer();
-      }, 15000);
-    }
+    this.startHeartbeatInterval();
   }
 
   private disableBackgroundService() {

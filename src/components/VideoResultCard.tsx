@@ -548,8 +548,8 @@ export const VideoResultCard: React.FC<Props> = ({
           <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
           <p>
             {language === 'bn'
-              ? 'ডাউনলোড বাটনে চাপলে ব্রাউজার সরাসরি আপনার ডিভাইসের Downloads ফোল্ডারে সম্পূর্ণ সচল MP4 ভিডিও অথবা MP3 গানটি সেভ করবে।'
-              : 'Files are directly packaged and delivered into your device\'s local Downloads directory. 100% playable MP4 video and MP3 audio.'}
+              ? 'ডাউনলোড বাটনে চাপলে ব্রাউজার সরাসরি আপনার ডিভাইসের Downloads বা মেমোরি কার্ডে সম্পূর্ণ সচল MP4 ভিডিও অথবা MP3 গানটি সেভ করবে। বড় সাইজের (১০০ MB থেকে ২.৭ GB+) HD/4K ভিডিও কোনো মেমোরি লোড ছাড়াই সরাসরি স্ট্রিম ও রিজিউম সাপোর্টসহ ডাউনলোড হয়।'
+              : 'Files are directly streamed into your device\'s local Downloads directory with HTTP Range resume support — handling large HD/4K files (100 MB to 2.7 GB+) with zero browser RAM buffering.'}
           </p>
         </div>
       </div>

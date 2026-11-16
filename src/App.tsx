@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { AppTab, DownloadTask, Language, MediaFormat, VideoMetadata, YouTubeSongTrack } from './types';
+import { AppTab, CreatorProfile, DownloadTask, Language, MediaFormat, VideoMetadata, YouTubeSongTrack } from './types';
 import { Navbar } from './components/Navbar';
 import { DownloaderView } from './components/DownloaderView';
 import { DownloadHistoryView } from './components/DownloadHistoryView';
@@ -17,9 +17,11 @@ import { MobilePersistenceBar } from './components/MobilePersistenceBar';
 import { StorageLocationModal } from './components/StorageLocationModal';
 import { AndroidReleaseModal } from './components/AndroidReleaseModal';
 import { AndroidPermissionLoginModal } from './components/AndroidPermissionLoginModal';
+import { CreatorIdentityModal } from './components/CreatorIdentityModal';
 import { FloatingShortcutDownloadButton } from './components/FloatingShortcutDownloadButton';
 import { YouTubeMusicView } from './components/YouTubeMusicView';
 import { MusicPlayerBar } from './components/MusicPlayerBar';
+import { creatorIdentityManager } from './services/creatorIdentityManager';
 import { 
   extractUrlFromText, 
   extractVideoInfo 
@@ -54,6 +56,10 @@ export default function App() {
   const [isStorageModalOpen, setIsStorageModalOpen] = useState<boolean>(false);
   const [isAndroidReleaseModalOpen, setIsAndroidReleaseModalOpen] = useState<boolean>(false);
   const [isAndroidPermissionModalOpen, setIsAndroidPermissionModalOpen] = useState<boolean>(false);
+  const [creatorProfile, setCreatorProfile] = useState<CreatorProfile>(() => creatorIdentityManager.getProfile());
+  const [isCreatorModalOpen, setIsCreatorModalOpen] = useState<boolean>(false);
+  const [creatorModalMode, setCreatorModalMode] = useState<'card' | 'edit'>('card');
+  const [footerAvatarError, setFooterAvatarError] = useState<boolean>(false);
 
   // YouTube Music & Album Player states
   const [playingTrack, setPlayingTrack] = useState<YouTubeSongTrack | null>(null);
@@ -64,6 +70,14 @@ export default function App() {
   useEffect(() => {
     const saved = loadDownloadHistory();
     setHistory(saved);
+  }, []);
+
+  // 1a. Subscribe to Creator Identity profile updates
+  useEffect(() => {
+    return creatorIdentityManager.subscribe((updated) => {
+      setCreatorProfile(updated);
+      setFooterAvatarError(false);
+    });
   }, []);
 
   // 1b. Listen to Google Auth State
@@ -539,6 +553,11 @@ export default function App() {
         onOpenStorageModal={() => setIsStorageModalOpen(true)}
         onOpenAndroidReleaseModal={() => setIsAndroidReleaseModalOpen(true)}
         onOpenAndroidPermissionModal={() => setIsAndroidPermissionModalOpen(true)}
+        onOpenCreatorModal={() => {
+          setCreatorModalMode('card');
+          setIsCreatorModalOpen(true);
+        }}
+        creatorProfile={creatorProfile}
         onCloudSyncLoaded={handleCloudSyncLoaded}
       />
 
@@ -693,6 +712,15 @@ export default function App() {
         onOpenStorageModal={() => setIsStorageModalOpen(true)}
       />
 
+      {/* App Creator Identity Modal */}
+      <CreatorIdentityModal
+        isOpen={isCreatorModalOpen}
+        onClose={() => setIsCreatorModalOpen(false)}
+        language={language}
+        currentUser={currentUser}
+        initialMode={creatorModalMode}
+      />
+
       {/* Always Visible Floating Shortcut Download Button */}
       <FloatingShortcutDownloadButton
         video={video}
@@ -706,62 +734,135 @@ export default function App() {
       />
 
       {/* Footer */}
-      <footer className="w-full border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>
-            {language === 'bn' 
-              ? 'সার্বজনীন ভিডিও ও অডিও ডাউনলোডার ইঞ্জিন • yt-dlp ও Web Share Target আর্কিটেকচার'
-              : 'Universal Video & Audio Downloader Engine • yt-dlp & Web Share Target Architecture'}
-          </p>
-          <div className="flex items-center gap-4 text-slate-400 flex-wrap justify-center">
-            <button 
-              onClick={() => setIsAndroidPermissionModalOpen(true)}
-              className="hover:text-emerald-300 text-emerald-400 font-semibold transition flex items-center gap-1"
-            >
-              <span>{language === 'bn' ? '🛡️ অ্যান্ড্রয়েড পারমিশন ও সাইন-ইন' : '🛡️ Android Permissions & Login'}</span>
-            </button>
-            <span>•</span>
-            <button 
-              onClick={() => setIsAndroidReleaseModalOpen(true)}
-              className="hover:text-emerald-300 text-sky-400 font-medium transition flex items-center gap-1"
-            >
-              <span>{language === 'bn' ? '📱 অ্যান্ড্রয়েড APK রিলিজ' : '📱 Android APK Release'}</span>
-            </button>
-            <span>•</span>
-            <button 
-              onClick={() => setIsStorageModalOpen(true)}
-              className="hover:text-white text-emerald-400 font-medium transition flex items-center gap-1"
-            >
-              <span>{language === 'bn' ? '💾 মেমোরি কার্ড সেটিংস' : '💾 SD Card Settings'}</span>
-            </button>
-            <span>•</span>
-            <button 
-              onClick={() => setActiveTab('batch')}
-              className="hover:text-white text-rose-400 font-medium transition flex items-center gap-1"
-            >
-              <span>{language === 'bn' ? 'ব্যাচ কিউ' : 'Batch Queue'}</span>
-            </button>
-            <span>•</span>
-            <button 
-              onClick={() => setActiveTab('pwa-guide')}
-              className="hover:text-rose-400 text-sky-400 transition flex items-center gap-1"
-            >
-              <span>{language === 'bn' ? 'PWA শেয়ার টিউটোরিয়াল' : 'PWA Share Guide'}</span>
-            </button>
-            <span>•</span>
-            <button 
-              onClick={() => setActiveTab('blueprint')}
-              className="hover:text-white transition"
-            >
-              {language === 'bn' ? 'অ্যান্ড্রয়েড ইন্টেন্ট কোড' : 'Android Intent Code'}
-            </button>
-            <span>•</span>
-            <button 
-              onClick={() => setActiveTab('history')}
-              className="hover:text-white transition"
-            >
-              {language === 'bn' ? 'হিস্টোরি' : 'History'}
-            </button>
+      <footer className="w-full border-t border-slate-900 bg-slate-950 py-6 text-xs text-slate-500">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 space-y-5">
+          {creatorProfile.showInFooter && (
+            <div className="pb-5 border-b border-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-rose-500 to-sky-500 p-0.5 shrink-0">
+                  <div className="w-full h-full rounded-[10px] bg-slate-950 overflow-hidden flex items-center justify-center">
+                    {creatorProfile.avatarUrl && !footerAvatarError ? (
+                      <img
+                        src={creatorProfile.avatarUrl}
+                        alt={creatorProfile.name}
+                        referrerPolicy="no-referrer"
+                        onError={() => setFooterAvatarError(true)}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-sm font-bold text-white">
+                        {creatorIdentityManager.getInitials(creatorProfile.name)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="min-w-0 text-left">
+                  <p className="text-sm font-semibold text-white truncate">
+                    {language === 'bn' ? 'নির্মাতা:' : 'Created by'} {creatorProfile.name}
+                  </p>
+                  <p className="text-xs text-slate-400 truncate mt-0.5">
+                    {[
+                      creatorProfile.role,
+                      creatorProfile.email,
+                      `© ${creatorProfile.copyrightYear} ${creatorProfile.studioName || 'Downloader Pro'}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreatorModalMode('card');
+                    setIsCreatorModalOpen(true);
+                  }}
+                  className="min-h-[44px] px-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-600 text-slate-200 hover:text-white text-xs font-semibold transition"
+                >
+                  {language === 'bn' ? 'পরিচিতি দেখুন' : 'View Profile'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreatorModalMode('edit');
+                    setIsCreatorModalOpen(true);
+                  }}
+                  className="min-h-[44px] px-4 rounded-xl bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500/25 text-rose-300 hover:text-white text-xs font-semibold transition"
+                >
+                  {language === 'bn' ? 'তথ্য এডিট করুন' : 'Edit Credit'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+            <p>
+              {language === 'bn' 
+                ? 'সার্বজনীন ভিডিও ও অডিও ডাউনলোডার ইঞ্জিন · yt-dlp ও Web Share Target আর্কিটেকচার'
+                : 'Universal Video & Audio Downloader Engine · yt-dlp & Web Share Target Architecture'}
+            </p>
+            <div className="flex items-center gap-4 text-slate-400 flex-wrap justify-center">
+              <button 
+                onClick={() => {
+                  setCreatorModalMode('card');
+                  setIsCreatorModalOpen(true);
+                }}
+                className="hover:text-white text-rose-400 font-semibold transition flex items-center gap-1"
+              >
+                <span>{language === 'bn' ? 'নির্মাতার পরিচয়' : 'Creator Credit'}</span>
+              </button>
+              <span>·</span>
+              <button 
+                onClick={() => setIsAndroidPermissionModalOpen(true)}
+                className="hover:text-emerald-300 text-emerald-400 font-semibold transition flex items-center gap-1"
+              >
+                <span>{language === 'bn' ? '🛡️ অ্যান্ড্রয়েড পারমিশন ও সাইন-ইন' : '🛡️ Android Permissions & Login'}</span>
+              </button>
+              <span>·</span>
+              <button 
+                onClick={() => setIsAndroidReleaseModalOpen(true)}
+                className="hover:text-emerald-300 text-sky-400 font-medium transition flex items-center gap-1"
+              >
+                <span>{language === 'bn' ? '📱 অ্যান্ড্রয়েড APK রিলিজ' : '📱 Android APK Release'}</span>
+              </button>
+              <span>·</span>
+              <button 
+                onClick={() => setIsStorageModalOpen(true)}
+                className="hover:text-white text-emerald-400 font-medium transition flex items-center gap-1"
+              >
+                <span>{language === 'bn' ? '💾 মেমোরি কার্ড সেটিংস' : '💾 SD Card Settings'}</span>
+              </button>
+              <span>·</span>
+              <button 
+                onClick={() => setActiveTab('batch')}
+                className="hover:text-white text-rose-400 font-medium transition flex items-center gap-1"
+              >
+                <span>{language === 'bn' ? 'ব্যাচ কিউ' : 'Batch Queue'}</span>
+              </button>
+              <span>·</span>
+              <button 
+                onClick={() => setActiveTab('pwa-guide')}
+                className="hover:text-rose-400 text-sky-400 transition flex items-center gap-1"
+              >
+                <span>{language === 'bn' ? 'PWA শেয়ার টিউটোরিয়াল' : 'PWA Share Guide'}</span>
+              </button>
+              <span>·</span>
+              <button 
+                onClick={() => setActiveTab('blueprint')}
+                className="hover:text-white transition"
+              >
+                {language === 'bn' ? 'অ্যান্ড্রয়েড ইন্টেন্ট কোড' : 'Android Intent Code'}
+              </button>
+              <span>·</span>
+              <button 
+                onClick={() => setActiveTab('history')}
+                className="hover:text-white transition"
+              >
+                {language === 'bn' ? 'হিস্টোরি' : 'History'}
+              </button>
+            </div>
           </div>
         </div>
       </footer>

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleAuthButton } from './GoogleAuthButton';
 import { ProgramsHubModal } from './ProgramsHubModal';
-import { AppTab, Language, StorageConfig, DownloadTask } from '../types';
+import { AppTab, Language, StorageConfig, DownloadTask, CreatorProfile } from '../types';
 import { getTranslation } from '../utils/translations';
 import { usePWA } from '../hooks/usePWA';
 import { storagePreferenceManager } from '../services/storagePreferenceManager';
+import { creatorIdentityManager } from '../services/creatorIdentityManager';
 import { 
   Download, 
   History, 
@@ -18,7 +19,8 @@ import {
   LayoutGrid,
   Activity,
   ShieldCheck,
-  Music
+  Music,
+  UserCheck
 } from 'lucide-react';
 
 interface Props {
@@ -31,6 +33,8 @@ interface Props {
   onOpenStorageModal?: () => void;
   onOpenAndroidReleaseModal?: () => void;
   onOpenAndroidPermissionModal?: () => void;
+  onOpenCreatorModal?: () => void;
+  creatorProfile?: CreatorProfile;
   onCloudSyncLoaded?: (cloudTasks: DownloadTask[]) => void;
 }
 
@@ -44,6 +48,8 @@ export const Navbar: React.FC<Props> = ({
   onOpenStorageModal,
   onOpenAndroidReleaseModal,
   onOpenAndroidPermissionModal,
+  onOpenCreatorModal,
+  creatorProfile,
   onCloudSyncLoaded,
 }) => {
   const t = getTranslation(language);
@@ -204,7 +210,7 @@ export const Navbar: React.FC<Props> = ({
             title="Browse all tools & programs one by one"
           >
             <LayoutGrid className="w-3.5 h-3.5 text-rose-400" />
-            <span>{language === 'bn' ? 'প্রোগ্রামসমূহ (৮)' : 'Programs (8)'}</span>
+            <span>{language === 'bn' ? 'প্রোগ্রামসমূহ (১১)' : 'Programs (11)'}</span>
           </button>
 
           {/* Optional Wide Desktop Direct Shortcuts */}
@@ -242,6 +248,26 @@ export const Navbar: React.FC<Props> = ({
               <span>APK</span>
             </button>
           </div>
+
+          {/* Creator Identity Trigger */}
+          {onOpenCreatorModal && (
+            <button
+              id="creator-identity-header-btn"
+              type="button"
+              onClick={onOpenCreatorModal}
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 border border-slate-800 text-slate-200 hover:text-white hover:border-rose-500/40 transition shrink-0"
+              title={language === 'bn' ? 'অ্যাপ নির্মাতার পরিচিতি' : 'App Creator Identity'}
+            >
+              <span className="w-5 h-5 rounded-md bg-gradient-to-tr from-rose-500 to-sky-500 text-[10px] font-bold text-white flex items-center justify-center shrink-0">
+                {creatorProfile
+                  ? creatorIdentityManager.getInitials(creatorProfile.name)
+                  : <UserCheck className="w-3 h-3" />}
+              </span>
+              <span className="hidden sm:inline max-w-[90px] truncate">
+                {creatorProfile?.name || (language === 'bn' ? 'নির্মাতা' : 'Creator')}
+              </span>
+            </button>
+          )}
 
           {/* Language Toggle */}
           <button
@@ -359,6 +385,16 @@ export const Navbar: React.FC<Props> = ({
           <LayoutGrid className="w-3 h-3 text-rose-400" />
           <span>{language === 'bn' ? 'সকল প্রোগ্রাম' : 'All Programs'}</span>
         </button>
+
+        {onOpenCreatorModal && (
+          <button
+            onClick={onOpenCreatorModal}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-200 bg-slate-900 border border-slate-800 whitespace-nowrap shrink-0"
+          >
+            <UserCheck className="w-3 h-3 text-sky-400" />
+            <span>{language === 'bn' ? 'নির্মাতা' : 'Creator'}</span>
+          </button>
+        )}
       </div>
 
       {/* Programs Hub Modal (One-by-One Program Viewer) */}
@@ -378,6 +414,9 @@ export const Navbar: React.FC<Props> = ({
         }}
         onOpenAndroidPermissionModal={() => {
           if (onOpenAndroidPermissionModal) onOpenAndroidPermissionModal();
+        }}
+        onOpenCreatorModal={() => {
+          if (onOpenCreatorModal) onOpenCreatorModal();
         }}
       />
     </header>

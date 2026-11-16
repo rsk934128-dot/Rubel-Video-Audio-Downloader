@@ -69,9 +69,18 @@ export const DownloadHistoryView: React.FC<Props> = ({
     });
   };
 
-  const handleSaveToSDCard = async (item: DownloadTask) => {
+  const resolveHistoryUrl = (item: DownloadTask): string | null => {
+    if (item.fileBlobUrl) return item.fileBlobUrl;
+    if (!item.directUrl) return null;
+    if (item.directUrl.startsWith('/api/') || item.directUrl.startsWith('blob:') || item.directUrl.startsWith('data:')) {
+      return item.directUrl;
+    }
     const isAudioItem = item.format?.type === 'audio';
-    const targetUrl = item.fileBlobUrl || (item.directUrl ? `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}&originUrl=${encodeURIComponent(item.originalUrl || '')}&filename=${encodeURIComponent(item.fileName)}&isAudio=${isAudioItem}&stream=true` : null);
+    return `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}&originUrl=${encodeURIComponent(item.originalUrl || '')}&filename=${encodeURIComponent(item.fileName)}&isAudio=${isAudioItem}&stream=true`;
+  };
+
+  const handleSaveToSDCard = async (item: DownloadTask) => {
+    const targetUrl = resolveHistoryUrl(item);
     if (!targetUrl) {
       onRetry(item);
       return;
@@ -89,14 +98,9 @@ export const DownloadHistoryView: React.FC<Props> = ({
   };
 
   const handleReDownload = async (item: DownloadTask) => {
-    if (item.fileBlobUrl) {
-      triggerBrowserDownload(item.fileName, item.fileBlobUrl);
-      return;
-    }
-    if (item.directUrl) {
-      const isAudioItem = item.format?.type === 'audio';
-      const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(item.directUrl)}&originUrl=${encodeURIComponent(item.originalUrl || '')}&filename=${encodeURIComponent(item.fileName)}&isAudio=${isAudioItem}&stream=true`;
-      triggerBrowserDownload(item.fileName, proxyUrl);
+    const targetUrl = resolveHistoryUrl(item);
+    if (targetUrl) {
+      triggerBrowserDownload(item.fileName, targetUrl);
       return;
     }
     // Re-trigger actual target link download

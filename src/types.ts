@@ -114,6 +114,7 @@ export interface StorageConfig {
   customFolder?: string;
   useNativePicker: boolean;
   autoSaveToSD: boolean;
+  batterySaverMode?: boolean;
   lastUsedPath?: string;
 }
 
@@ -131,3 +132,21 @@ export interface StorageAccessStatus {
   canWriteLocalStorage: boolean;
   status: 'optimal' | 'limited' | 'request_needed';
 }
+
+export interface CreatorProfile {
+  name: string;
+  role: string;
+  studioName: string;
+  email: string;
+  location: string;
+  bio: string;
+  websiteUrl: string;
+  youtubeUrl: string;
+  facebookUrl: string;
+  githubUrl: string;
+  avatarUrl: string;
+  showInFooter: boolean;
+  copyrightYear: string;
+  updatedAt: number;
+}
+
