@@ -354,6 +354,7 @@ const ETACLOUD_HEADERS = {
 let cachedEtaApiKey: { key: string; fetchedAt: number } | null = null;
 let pendingEtaKeyPromise: Promise<string | null> | null = null;
 const etaAudioStreamCache = new Map<string, { downloadUrl: string; title?: string; cachedAt: number }>();
+const etaAudioProgressCache = new Map<string, { progressUrl: string; title?: string; createdAt: number }>();
 const pendingAudioResolveMap = new Map<string, Promise<{ downloadUrl: string; title?: string } | null>>();
 
 function extractYouTubeVideoId(input: string): string | null {
@@ -604,16 +605,97 @@ export async function checkEtaCloudProgress(packedProgressUrl: string): Promise<
     }
     const isDone = Number(data.progress) >= 3;
     const pct = isDone ? 1000 : Math.min(900, Math.max(200, Number(data.progress || 1) * 300));
+    const resolvedTitle = data.title || fallbackTitle;
+    if (isDone && downloadUrl && (fmt === 'mp3' || fmt === 'm4a')) {
+      const vidMatch = downloadUrl.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+      if (vidMatch?.[1]) {
+        etaAudioStreamCache.set(vidMatch[1], {
+          downloadUrl,
+          title: resolvedTitle,
+          cachedAt: Date.now(),
+        });
+        etaAudioProgressCache.delete(vidMatch[1]);
+      }
+    }
     return {
       success: isDone,
       progress: pct,
       downloadUrl: isDone ? downloadUrl : null,
-      title: data.title || fallbackTitle,
+      title: resolvedTitle,
       format: fmt,
     };
   } catch {
     return { success: false, progress: 400, downloadUrl: null };
   }
+}
+
+export async function resolveYouTubeAudioStatus(videoIdOrUrl: string): Promise<{
+  status: 'ready' | 'processing' | 'error';
+  downloadUrl?: string;
+  progressUrl?: string;
+  progress?: number;
+  title?: string;
+  error?: string;
+}> {
+  const videoId = extractYouTubeVideoId(videoIdOrUrl);
+  if (!videoId) {
+    return { status: 'error', error: 'Invalid YouTube video ID' };
+  }
+
+  const cached = etaAudioStreamCache.get(videoId);
+  if (cached && Date.now() - cached.cachedAt < 20 * 60 * 1000) {
+    return { status: 'ready', downloadUrl: cached.downloadUrl, title: cached.title };
+  }
+
+  const activeJob = etaAudioProgressCache.get(videoId);
+  if (activeJob && Date.now() - activeJob.createdAt < 10 * 60 * 1000) {
+    const prog = await checkEtaCloudProgress(activeJob.progressUrl);
+    if (prog?.success && prog.downloadUrl) {
+      etaAudioStreamCache.set(videoId, {
+        downloadUrl: prog.downloadUrl,
+        title: prog.title || activeJob.title,
+        cachedAt: Date.now(),
+      });
+      etaAudioProgressCache.delete(videoId);
+      return { status: 'ready', downloadUrl: prog.downloadUrl, title: prog.title || activeJob.title };
+    }
+    if (prog && !prog.error) {
+      return {
+        status: 'processing',
+        progressUrl: activeJob.progressUrl,
+        progress: Math.max(10, Math.min(95, Math.round((prog.progress || 250) / 10))),
+        title: prog.title || activeJob.title,
+      };
+    }
+    etaAudioProgressCache.delete(videoId);
+  }
+
+  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const res = await bypassEtaCloud(ytUrl, 'mp3');
+  if (!res) {
+    return { status: 'error', error: 'Audio extractor unavailable for this track' };
+  }
+
+  if (res.isDirect && res.directUrl) {
+    etaAudioStreamCache.set(videoId, { downloadUrl: res.directUrl, title: res.title, cachedAt: Date.now() });
+    return { status: 'ready', downloadUrl: res.directUrl, title: res.title };
+  }
+
+  if (res.progressUrl) {
+    etaAudioProgressCache.set(videoId, {
+      progressUrl: res.progressUrl,
+      title: res.title,
+      createdAt: Date.now(),
+    });
+    return {
+      status: 'processing',
+      progressUrl: res.progressUrl,
+      progress: 15,
+      title: res.title,
+    };
+  }
+
+  return { status: 'error', error: 'Could not initialize audio stream' };
 }
 
 export async function resolveYouTubeAudioStreamUrl(videoIdOrUrl: string): Promise<{ downloadUrl: string; title?: string } | null> {
@@ -631,24 +713,52 @@ export async function resolveYouTubeAudioStreamUrl(videoIdOrUrl: string): Promis
   }
 
   const resolveTask = (async (): Promise<{ downloadUrl: string; title?: string } | null> => {
-    const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const res = await bypassEtaCloud(ytUrl, 'mp3');
-    if (!res) return null;
+    let progressUrl: string | undefined;
+    let fallbackTitle: string | undefined;
 
-    if (res.isDirect && res.directUrl) {
-      etaAudioStreamCache.set(videoId, { downloadUrl: res.directUrl, title: res.title, cachedAt: Date.now() });
-      return { downloadUrl: res.directUrl, title: res.title };
+    const existingJob = etaAudioProgressCache.get(videoId);
+    if (existingJob && Date.now() - existingJob.createdAt < 10 * 60 * 1000) {
+      progressUrl = existingJob.progressUrl;
+      fallbackTitle = existingJob.title;
+    } else {
+      const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const res = await bypassEtaCloud(ytUrl, 'mp3');
+      if (!res) return null;
+
+      if (res.isDirect && res.directUrl) {
+        etaAudioStreamCache.set(videoId, { downloadUrl: res.directUrl, title: res.title, cachedAt: Date.now() });
+        return { downloadUrl: res.directUrl, title: res.title };
+      }
+
+      if (res.progressUrl) {
+        progressUrl = res.progressUrl;
+        fallbackTitle = res.title;
+        etaAudioProgressCache.set(videoId, {
+          progressUrl,
+          title: fallbackTitle,
+          createdAt: Date.now(),
+        });
+      }
     }
 
-    if (res.progressUrl) {
-      for (let i = 0; i < 12; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const prog = await checkEtaCloudProgress(res.progressUrl);
+    if (progressUrl) {
+      // Allow up to 120 seconds (60 * 2000ms) so 1+ hour uncached audio conversions finish cleanly
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const prog = await checkEtaCloudProgress(progressUrl);
         if (prog?.success && prog.downloadUrl) {
-          etaAudioStreamCache.set(videoId, { downloadUrl: prog.downloadUrl, title: prog.title || res.title, cachedAt: Date.now() });
-          return { downloadUrl: prog.downloadUrl, title: prog.title || res.title };
+          etaAudioStreamCache.set(videoId, {
+            downloadUrl: prog.downloadUrl,
+            title: prog.title || fallbackTitle,
+            cachedAt: Date.now(),
+          });
+          etaAudioProgressCache.delete(videoId);
+          return { downloadUrl: prog.downloadUrl, title: prog.title || fallbackTitle };
         }
-        if (prog?.error) break;
+        if (prog?.error) {
+          etaAudioProgressCache.delete(videoId);
+          break;
+        }
       }
     }
 
@@ -1318,8 +1428,27 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
   }
 
   // Forward Range header if requested (essential for media players and large file pause/resume download)
+  // For inline <audio>/<video> streams with open-ended Range (e.g. bytes=0-), bound to 4MB chunks
+  // so 1+ hour audio tracks (80MB-200MB+) stream smoothly without exceeding proxy/gateway transfer caps.
+  const isInlineStream = req.query?.inline === 'true';
+  let didBoundOpenRange = false;
   if (req.headers.range) {
-    headers['Range'] = req.headers.range;
+    const openRangeMatch = isInlineStream ? String(req.headers.range).match(/^bytes=(\d+)-$/i) : null;
+    if (openRangeMatch) {
+      const startByte = Number(openRangeMatch[1]);
+      if (Number.isFinite(startByte) && startByte >= 0) {
+        const chunkBytes = 4 * 1024 * 1024;
+        headers['Range'] = `bytes=${startByte}-${startByte + chunkBytes - 1}`;
+        didBoundOpenRange = true;
+      } else {
+        headers['Range'] = req.headers.range;
+      }
+    } else {
+      headers['Range'] = req.headers.range;
+    }
+  } else if (isInlineStream && isAudio) {
+    headers['Range'] = `bytes=0-${4 * 1024 * 1024 - 1}`;
+    didBoundOpenRange = true;
   }
 
   // Setup abort controller for initial HTTP connection/headers and true premature client disconnects
@@ -1339,17 +1468,37 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
   });
 
   try {
+    const upstreamMethod = req.method === 'HEAD' ? 'HEAD' : 'GET';
     let upstream = await fetch(targetUrl, {
+      method: upstreamMethod,
       headers,
       signal: controller.signal,
       redirect: 'follow',
     });
+
+    // If a bounded inline chunk caused 416 on an atypical origin, retry cleanly without bounded range
+    if (upstream.status === 416 && didBoundOpenRange && !req.destroyed) {
+      try { await upstream.body?.cancel(); } catch {}
+      const fallbackHeaders = { ...headers };
+      if (req.headers.range) {
+        fallbackHeaders['Range'] = String(req.headers.range);
+      } else {
+        delete fallbackHeaders['Range'];
+      }
+      upstream = await fetch(targetUrl, {
+        method: upstreamMethod,
+        headers: fallbackHeaders,
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+    }
 
     if (!upstream.ok && upstream.status !== 206 && targetUrl.includes('etacloud.org') && !req.destroyed) {
       await new Promise((r) => setTimeout(r, 1200));
       const retryHeaders = { ...headers };
       delete retryHeaders['Origin'];
       upstream = await fetch(targetUrl, {
+        method: upstreamMethod,
         headers: retryHeaders,
         signal: controller.signal,
         redirect: 'follow',
@@ -1395,7 +1544,6 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     res.setHeader('Content-Type', contentType);
 
     // RFC 6266 / RFC 5987 compliant Content-Disposition: inline for players or attachment for downloads
-    const isInlineStream = req.query?.inline === 'true';
     res.setHeader(
       'Content-Disposition',
       buildSafeContentDisposition(cleanFilename, isAudio ? 'audio_download.mp3' : 'video_download.mp4', isInlineStream)
@@ -1411,6 +1559,9 @@ export async function proxyStreamMedia(targetUrl: string, rawFilename: string, r
     if (contentRange) res.setHeader('Content-Range', contentRange);
 
     if (req.method === 'HEAD') {
+      if (upstream.body) {
+        try { await upstream.body.cancel(); } catch {}
+      }
       return res.end();
     }
 

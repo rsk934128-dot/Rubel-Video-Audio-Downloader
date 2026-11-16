@@ -8,6 +8,7 @@ import {
   streamResilientMedia,
   isBigBuckBunny,
   resolveYouTubeAudioStreamUrl,
+  resolveYouTubeAudioStatus,
   checkEtaCloudProgress
 } from './server/bypassEngine';
 import { searchYouTubeSongs } from './server/youtubeSearch';
@@ -40,22 +41,62 @@ async function startServer() {
     }
   });
 
-  // Pre-resolve direct MP3 audio URL for background playback
+  // Pre-resolve direct MP3 audio URL for background playback (supports non-blocking ?mode=status for 1+ hour tracks)
   app.get('/api/audio/resolve', async (req: Request, res: Response) => {
     const id = (req.query.id as string) || '';
+    const title = (req.query.title as string) || 'audio';
+    const mode = (req.query.mode as string) || '';
     if (!id) return res.status(400).json({ success: false, error: 'Missing id' });
+
+    if (isBigBuckBunny(id, title)) {
+      return res.json({
+        success: true,
+        ready: true,
+        streamUrl: `/api/audio/stream?id=${encodeURIComponent(id)}&title=${encodeURIComponent(title)}`,
+        title,
+      });
+    }
+
     try {
+      if (mode === 'status') {
+        const statusRes = await resolveYouTubeAudioStatus(id);
+        if (statusRes.status === 'ready' && statusRes.downloadUrl) {
+          return res.json({
+            success: true,
+            ready: true,
+            streamUrl: `/api/audio/stream?id=${encodeURIComponent(id)}&title=${encodeURIComponent(statusRes.title || title)}`,
+            title: statusRes.title || title,
+          });
+        }
+        if (statusRes.status === 'processing') {
+          return res.json({
+            success: true,
+            ready: false,
+            status: 'processing',
+            progress: statusRes.progress || 20,
+            progressUrl: statusRes.progressUrl,
+            title: statusRes.title || title,
+          });
+        }
+        return res.status(404).json({
+          success: false,
+          ready: false,
+          error: statusRes.error || 'Audio stream could not be resolved',
+        });
+      }
+
       const resolved = await resolveYouTubeAudioStreamUrl(id);
       if (resolved?.downloadUrl) {
         return res.json({
           success: true,
-          streamUrl: `/api/audio/stream?id=${encodeURIComponent(id)}&title=${encodeURIComponent(resolved.title || 'audio')}`,
+          ready: true,
+          streamUrl: `/api/audio/stream?id=${encodeURIComponent(id)}&title=${encodeURIComponent(resolved.title || title)}`,
           title: resolved.title,
         });
       }
-      return res.status(404).json({ success: false, error: 'Audio stream could not be resolved' });
+      return res.status(404).json({ success: false, ready: false, error: 'Audio stream could not be resolved' });
     } catch (err: any) {
-      return res.status(500).json({ success: false, error: err.message });
+      return res.status(500).json({ success: false, ready: false, error: err.message });
     }
   });
 

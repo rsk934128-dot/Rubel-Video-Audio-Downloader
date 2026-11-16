@@ -155,8 +155,14 @@ export const VideoMiniPlayerPreview: React.FC<Props> = ({
   };
 
   const formatSecs = (sec: number) => {
-    const mins = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
+    if (isNaN(sec) || sec < 0) return '0:00';
+    const total = Math.floor(sec);
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (hrs > 0) {
+      return `${hrs}:${mins < 10 ? '0' : ''}${mins}:${s < 10 ? '0' : ''}${s}`;
+    }
     return `${mins}:${s < 10 ? '0' : ''}${s}`;
   };
 

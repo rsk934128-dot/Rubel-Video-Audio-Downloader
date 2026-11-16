@@ -87,6 +87,8 @@ export const MusicPlayerBar: React.FC<Props> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(180);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [prepProgress, setPrepProgress] = useState<number | null>(null);
+  const [prepMessage, setPrepMessage] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [nativePlaybackActive, setNativePlaybackActive] = useState(false);
 
@@ -95,6 +97,8 @@ export const MusicPlayerBar: React.FC<Props> = ({
   const progressBarRef = useRef<HTMLDivElement | null>(null);
   const miniProgressBarRef = useRef<HTMLDivElement | null>(null);
   const lastLoadedStreamRef = useRef<string>('');
+  const resolvedTrackKeyRef = useRef<string>('');
+  const streamRetryCountRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
 
   useEffect(() => {
@@ -132,14 +136,21 @@ export const MusicPlayerBar: React.FC<Props> = ({
     }));
   }, [playlist]);
 
-  // 1. Track Change: load persistent <audio> directly without unmounting DOM node & pre-warm next track
+  // 1. Track Change: async status pre-resolve for YouTube (prevents <audio> timeout on 1+ hour mixes) & pre-warm next track
   useEffect(() => {
     if (!track) return;
+
+    let cancelled = false;
+    const abortController = new AbortController();
 
     setDuration(track.durationSeconds || 180);
     setCurrentTime(0);
     setAudioError(null);
+    setPrepProgress(null);
+    setPrepMessage(null);
     setIsBuffering(!useIframeMode);
+    resolvedTrackKeyRef.current = '';
+    streamRetryCountRef.current = 0;
 
     backgroundKeepAlive.enableMusicSession(
       track.title,
@@ -147,41 +158,110 @@ export const MusicPlayerBar: React.FC<Props> = ({
       track.albumArt || track.thumbnail
     );
 
-    const absoluteStream = toAbsoluteHttpUrl(activeStreamUrl);
-    const nativeList = buildNativePlaylist();
+    const startAudioPlaybackWithUrl = (streamPath: string) => {
+      if (cancelled) return;
+      const absoluteStream = toAbsoluteHttpUrl(streamPath);
+      const nativeList = buildNativePlaylist();
 
-    // Start / update Android Foreground Service (with native MediaPlayer if remote URL is reachable)
-    androidBackgroundAudio
-      .startForeground({
-        trackId: track.id,
-        title: track.title,
-        artist: track.artist,
-        artworkUrl: track.albumArt || track.thumbnail,
-        streamUrl: useIframeMode ? undefined : absoluteStream,
-        isPlaying,
-        isLooping,
-        playlist: nativeList,
-      })
-      .then((res) => {
-        setNativePlaybackActive(res.nativePlayback && !useIframeMode);
-        if (res.nativePlayback && !useIframeMode && audioRef.current) {
-          audioRef.current.pause();
-        }
-      });
-
-    // WebView / Chrome HTML5 <audio> playback (used in browsers, PWAs, and when nativePlayback is false)
-    if (!useIframeMode && audioRef.current && activeStreamUrl) {
-      const el = audioRef.current;
-      if (lastLoadedStreamRef.current !== activeStreamUrl) {
-        lastLoadedStreamRef.current = activeStreamUrl;
-        el.src = activeStreamUrl;
-        el.load();
-      }
-      if (isPlaying && !nativePlaybackActive) {
-        el.play().catch((err) => {
-          console.warn('HTML5 audio play awaiting gesture or buffer:', err?.message);
+      androidBackgroundAudio
+        .startForeground({
+          trackId: track.id,
+          title: track.title,
+          artist: track.artist,
+          artworkUrl: track.albumArt || track.thumbnail,
+          streamUrl: useIframeMode ? undefined : absoluteStream,
+          isPlaying,
+          isLooping,
+          playlist: nativeList,
+        })
+        .then((res) => {
+          if (cancelled) return;
+          setNativePlaybackActive(res.nativePlayback && !useIframeMode);
+          if (res.nativePlayback && !useIframeMode && audioRef.current) {
+            audioRef.current.pause();
+          }
         });
+
+      if (!useIframeMode && audioRef.current && streamPath) {
+        const el = audioRef.current;
+        if (lastLoadedStreamRef.current !== streamPath) {
+          lastLoadedStreamRef.current = streamPath;
+          el.src = streamPath;
+          el.load();
+        }
+        if (isPlaying && !nativePlaybackActive) {
+          el.play().catch((err) => {
+            console.warn('HTML5 audio play awaiting gesture or buffer:', err?.message);
+          });
+        }
       }
+    };
+
+    if (useIframeMode) {
+      startAudioPlaybackWithUrl(activeStreamUrl);
+    } else if (isYouTube && youtubeVideoId) {
+      // Clear any previous track audio immediately while resolving/converting
+      if (audioRef.current && lastLoadedStreamRef.current !== activeStreamUrl) {
+        audioRef.current.pause();
+        audioRef.current.removeAttribute('src');
+        lastLoadedStreamRef.current = '';
+      }
+
+      const isLongTrack = (track.durationSeconds || 0) >= 3600;
+      setPrepMessage(isLongTrack ? `বড় অডিও (${track.duration}) প্রস্তুত হচ্ছে...` : 'অডিও প্রস্তুত হচ্ছে...');
+
+      (async () => {
+        for (let attempt = 0; attempt < 65; attempt++) {
+          if (cancelled) return;
+          try {
+            const resp = await fetch(
+              `/api/audio/resolve?id=${encodeURIComponent(youtubeVideoId)}&title=${encodeURIComponent(track.title)}&mode=status`,
+              { signal: abortController.signal }
+            );
+            const data = await resp.json().catch(() => null);
+            if (cancelled) return;
+
+            if (resp.ok && data?.ready && data?.streamUrl) {
+              resolvedTrackKeyRef.current = youtubeVideoId;
+              setPrepProgress(null);
+              setPrepMessage(null);
+              startAudioPlaybackWithUrl(data.streamUrl);
+              return;
+            }
+
+            if (resp.ok && data?.status === 'processing') {
+              const pct = typeof data.progress === 'number' ? data.progress : 20;
+              setPrepProgress(pct);
+              setPrepMessage(
+                isLongTrack
+                  ? `বড় অডিও (${track.duration}) রূপান্তর হচ্ছে (${pct}%)...`
+                  : `অডিও প্রস্তুত হচ্ছে (${pct}%)...`
+              );
+              await new Promise((r) => setTimeout(r, 1800));
+              continue;
+            }
+
+            break;
+          } catch (err: any) {
+            if (err?.name === 'AbortError' || cancelled) return;
+            break;
+          }
+        }
+
+        if (!cancelled) {
+          setPrepProgress(null);
+          setPrepMessage(null);
+          setIsBuffering(false);
+          setAudioError(
+            isLongTrack
+              ? '১+ ঘণ্টার এই বড় অডিওটি সরাসরি MP3 স্ট্রিমে প্রস্তুত করা যায়নি। "YouTube প্লেয়ারে চালান" দিয়ে শুনুন।'
+              : 'অডিও স্ট্রিম লোড হতে সমস্যা হয়েছে — YouTube প্লেয়ার দিয়ে চালাতে পারেন।'
+          );
+        }
+      })();
+    } else if (activeStreamUrl) {
+      resolvedTrackKeyRef.current = track.id;
+      startAudioPlaybackWithUrl(activeStreamUrl);
     }
 
     // Pre-warm NEXT song in playlist after 2.5s so track-to-track auto-play is instantaneous
@@ -198,6 +278,8 @@ export const MusicPlayerBar: React.FC<Props> = ({
     }
 
     return () => {
+      cancelled = true;
+      abortController.abort();
       if (warmupTimer) clearTimeout(warmupTimer);
     };
   }, [track?.id, activeStreamUrl, useIframeMode]);
@@ -239,13 +321,18 @@ export const MusicPlayerBar: React.FC<Props> = ({
         if (audioRef.current) audioRef.current.pause();
         postIframeCommand('playVideo');
       } else if (!nativePlaybackActive && audioRef.current) {
-        if (!audioRef.current.src && activeStreamUrl) {
-          audioRef.current.src = activeStreamUrl;
-          lastLoadedStreamRef.current = activeStreamUrl;
+        const isReadyForElement = !isYouTube || resolvedTrackKeyRef.current === youtubeVideoId;
+        if (isReadyForElement) {
+          if (!audioRef.current.getAttribute('src') && activeStreamUrl) {
+            audioRef.current.src = activeStreamUrl;
+            lastLoadedStreamRef.current = activeStreamUrl;
+          }
+          if (audioRef.current.getAttribute('src')) {
+            audioRef.current.play().catch((err) => {
+              console.warn('Native audio play error:', err);
+            });
+          }
         }
-        audioRef.current.play().catch((err) => {
-          console.warn('Native audio play error:', err);
-        });
       }
 
       backgroundKeepAlive.enableMusicSession(
@@ -436,8 +523,13 @@ export const MusicPlayerBar: React.FC<Props> = ({
 
   const formatSeconds = (sec: number) => {
     if (isNaN(sec) || sec < 0) return '0:00';
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
+    const total = Math.floor(sec);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) {
+      return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+    }
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
@@ -466,10 +558,14 @@ export const MusicPlayerBar: React.FC<Props> = ({
         }}
         onCanPlay={() => {
           setIsBuffering(false);
+          setPrepMessage(null);
+          setPrepProgress(null);
           setAudioError(null);
         }}
         onPlaying={() => {
           setIsBuffering(false);
+          setPrepMessage(null);
+          setPrepProgress(null);
           setAudioError(null);
           if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
             navigator.mediaSession.playbackState = 'playing';
@@ -484,10 +580,36 @@ export const MusicPlayerBar: React.FC<Props> = ({
         }}
         onEnded={handleAudioEnded}
         onError={() => {
-          if (!useIframeMode && !nativePlaybackActive && activeStreamUrl) {
-            setAudioError('অডিও স্ট্রিম লোড হতে সমস্যা হয়েছে — পরবর্তী গানে যাচ্ছে...');
-            setIsBuffering(false);
+          const el = audioRef.current;
+          if (!el || !el.getAttribute('src') || useIframeMode || nativePlaybackActive) return;
+
+          // Auto-retry once preserving current playback position (recovers long-stream network hiccups)
+          if (streamRetryCountRef.current < 1 && activeStreamUrl) {
+            streamRetryCountRef.current += 1;
+            const resumeAt = el.currentTime || currentTimeRef.current || 0;
+            setIsBuffering(true);
+            setPrepMessage('স্ট্রিম পুনঃসংযোগ করা হচ্ছে...');
+            setTimeout(() => {
+              if (!audioRef.current) return;
+              const sep = activeStreamUrl.includes('?') ? '&' : '?';
+              const retrySrc = `${activeStreamUrl}${sep}retry=${Date.now()}`;
+              lastLoadedStreamRef.current = retrySrc;
+              audioRef.current.src = retrySrc;
+              audioRef.current.load();
+              if (resumeAt > 1) {
+                try { audioRef.current.currentTime = resumeAt; } catch {}
+              }
+              if (isPlaying) {
+                audioRef.current.play().catch(() => {});
+              }
+            }, 1000);
+            return;
           }
+
+          setPrepMessage(null);
+          setPrepProgress(null);
+          setIsBuffering(false);
+          setAudioError('অডিও স্ট্রিম লোড হতে সমস্যা হয়েছে — YouTube প্লেয়ারে চালিয়ে শুনতে পারেন।');
         }}
       />
 
@@ -571,7 +693,13 @@ export const MusicPlayerBar: React.FC<Props> = ({
                 {/* Instant Play Indicator */}
                 <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-md px-2.5 py-1 rounded-full border border-emerald-500/50 flex items-center gap-1.5 text-[11px] text-emerald-300">
                   <Zap className="w-3 h-3 text-emerald-400 fill-emerald-400" />
-                  <span>{isBuffering ? 'অডিও লোড হচ্ছে...' : 'নেটিভ MP3 স্ট্রিম'}</span>
+                  <span>
+                    {prepMessage
+                      ? prepMessage
+                      : isBuffering
+                      ? 'অডিও লোড হচ্ছে...'
+                      : 'নেটিভ MP3 স্ট্রিম'}
+                  </span>
                 </div>
               </div>
 
@@ -588,8 +716,31 @@ export const MusicPlayerBar: React.FC<Props> = ({
                 <span>🛡️ ব্যাকগ্রাউন্ড অটো প্লে সক্রিয় • অ্যাপ থেকে বের হলেও গান চলবে</span>
               </div>
 
+              {prepProgress !== null && (
+                <div className="w-full max-w-xs mt-3 space-y-1">
+                  <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-300"
+                      style={{ width: `${Math.min(100, Math.max(8, prepProgress))}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-amber-300">{prepMessage}</p>
+                </div>
+              )}
+
               {audioError && (
-                <p className="text-xs text-rose-400 mt-2 font-medium">{audioError}</p>
+                <div className="mt-3 flex flex-col items-center gap-2">
+                  <p className="text-xs text-rose-400 font-medium max-w-xs">{audioError}</p>
+                  {isYouTube && youtubeVideoId && (
+                    <button
+                      onClick={() => setShowVideo(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow transition"
+                    >
+                      <Tv className="w-3.5 h-3.5" />
+                      <span>YouTube প্লেয়ারে চালান</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -625,7 +776,7 @@ export const MusicPlayerBar: React.FC<Props> = ({
               <div className="flex justify-between text-[11px] text-slate-400 font-mono">
                 <span>{formatSeconds(currentTime)}</span>
                 <span className="flex items-center gap-1">
-                  {isBuffering && <span className="text-amber-400 animate-pulse text-[10px]">অডিও প্রস্তুত হচ্ছে...</span>}
+                  {isBuffering && <span className="text-amber-400 animate-pulse text-[10px]">{prepMessage || 'অডিও প্রস্তুত হচ্ছে...'}</span>}
                   <span>{track.duration || formatSeconds(duration)}</span>
                 </span>
               </div>
@@ -759,7 +910,19 @@ export const MusicPlayerBar: React.FC<Props> = ({
                 <span>{track.artist}</span>
                 <span>•</span>
                 <span className="font-mono text-slate-300">{formatSeconds(currentTime)} / {track.duration}</span>
-                {isBuffering && <span className="text-amber-400 text-[10px]">প্রস্তুত হচ্ছে...</span>}
+                {isBuffering && <span className="text-amber-400 text-[10px]">{prepMessage || 'প্রস্তুত হচ্ছে...'}</span>}
+                {audioError && isYouTube && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsExpanded(true);
+                      setShowVideo(true);
+                    }}
+                    className="text-[10px] text-rose-400 underline hover:text-rose-300"
+                  >
+                    YouTube-এ চালান
+                  </button>
+                )}
               </p>
             </div>
           </div>

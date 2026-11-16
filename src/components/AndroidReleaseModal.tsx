@@ -249,7 +249,7 @@ export const AndroidReleaseModal: React.FC<Props> = ({ isOpen, onClose, language
                     <span>{language === 'bn' ? 'অটোমেটেড বিল্ড' : 'Automated CI/CD'}</span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-1">
-                    {language === 'bn' ? 'Java 17 ও Android SDK দিয়ে Ubuntu রানারে বিল্ড হয়' : 'Builds with Java 17 and Android SDK on Ubuntu runners'}
+                    {language === 'bn' ? 'Java 21 ও Android SDK দিয়ে Ubuntu রানারে বিল্ড হয়' : 'Builds with Java 21 and Android SDK on Ubuntu runners'}
                   </p>
                 </div>
 
